@@ -1,6 +1,7 @@
 import { memo, useState } from 'react'
 import { Markdown } from './Markdown'
-import type { Message as Msg } from '../api'
+import type { Attachment, Message as Msg } from '../api'
+import { KIND_ICON, fmtBytes } from '../util'
 
 function ThinkingBlock({ text }: { text: string }) {
   const [open, setOpen] = useState(false)
@@ -32,6 +33,46 @@ function CopyText({ text }: { text: string }) {
   )
 }
 
+function imageSrc(a: Attachment): string {
+  if (a.data_url) return a.data_url
+  if (a.url) return a.url.startsWith('data:') ? a.url : a.url
+  return `/api/uploads/${a.name}`
+}
+
+function UserAttachments({ msg }: { msg: Msg }) {
+  const atts: Attachment[] =
+    msg.attachments && msg.attachments.length
+      ? msg.attachments
+      : (msg.images || []).map(n => ({ name: n, kind: 'image', url: `/api/uploads/${n}` }))
+  if (atts.length === 0) return null
+
+  const images = atts.filter(a => a.kind === 'image')
+  const docs = atts.filter(a => a.kind !== 'image')
+
+  return (
+    <>
+      {images.length > 0 && (
+        <div className="user-images">
+          {images.map((a, i) => (
+            <img key={i} src={imageSrc(a)} alt={a.name} />
+          ))}
+        </div>
+      )}
+      {docs.length > 0 && (
+        <div className="user-docs">
+          {docs.map((a, i) => (
+            <span className="doc-chip" key={i} title={a.name}>
+              <span className="doc-icon">{KIND_ICON[a.kind] || '📎'}</span>
+              <span className="doc-name">{a.name}</span>
+              {a.size ? <span className="doc-size">{fmtBytes(a.size)}</span> : null}
+            </span>
+          ))}
+        </div>
+      )}
+    </>
+  )
+}
+
 interface Props {
   msg: Msg
   streaming?: boolean
@@ -42,7 +83,6 @@ interface Props {
 
 export const Message = memo(function Message({ msg, streaming, stats, isLast, onRegenerate }: Props) {
   const isUser = msg.role === 'user'
-  const images = (msg.images || []).filter(Boolean)
 
   return (
     <div className={`msg ${isUser ? 'user' : 'assistant'}`}>
@@ -52,14 +92,8 @@ export const Message = memo(function Message({ msg, streaming, stats, isLast, on
 
         {isUser ? (
           <>
-            {images.length > 0 && (
-              <div className="user-images">
-                {images.map((src, i) => (
-                  <img key={i} src={src.startsWith('data:') ? src : `/api/uploads/${src}`} alt="" />
-                ))}
-              </div>
-            )}
-            <div className="user-content">{msg.content}</div>
+            <UserAttachments msg={msg} />
+            {msg.content && <div className="user-content">{msg.content}</div>}
           </>
         ) : (
           <>

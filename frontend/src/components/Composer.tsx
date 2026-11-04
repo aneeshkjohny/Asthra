@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
+import type { Attachment } from '../api'
+import { KIND_ICON, fmtBytes } from '../util'
 
-interface PendingImage {
-  name: string
-  url: string
-  data_url: string
-  b64: string
+export interface PendingFile extends Attachment {
   uploading: boolean
 }
 
@@ -13,14 +11,20 @@ interface Props {
   streaming: boolean
   think: boolean
   onThink: (v: boolean) => void
-  onSend: (text: string, images: PendingImage[]) => void
+  onSend: (text: string, files: PendingFile[]) => void
   onStop: () => void
-  onUpload: (file: File) => Promise<PendingImage>
+  onUpload: (file: File) => Promise<PendingFile>
 }
+
+const ACCEPT =
+  'image/*,.txt,.md,.markdown,.log,.text,.rst,.py,.js,.jsx,.ts,.tsx,.mjs,.cjs,.json,.html,.htm,.css,.scss,' +
+  '.sh,.bash,.yml,.yaml,.toml,.ini,.cfg,.conf,.env,.c,.h,.cpp,.hpp,.cc,.java,.go,.rs,.rb,.php,.swift,' +
+  '.kt,.sql,.xml,.vue,.svelte,.r,.lua,.dart,.cs,.csv,.tsv,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods'
 
 export function Composer(p: Props) {
   const [text, setText] = useState('')
-  const [images, setImages] = useState<PendingImage[]>([])
+  const [files, setFiles] = useState<PendingFile[]>([])
+  const [dragging, setDragging] = useState(false)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -32,18 +36,19 @@ export function Composer(p: Props) {
     ta.style.height = Math.min(ta.scrollHeight, 220) + 'px'
   }, [text])
 
-  const canSend = !p.streaming && (text.trim().length > 0 || images.some(i => !i.uploading))
+  const uploading = files.some(f => f.uploading)
+  const canSend = !p.streaming && !uploading && (text.trim().length > 0 || files.length > 0)
 
-  async function handleFiles(files: FileList | null) {
-    if (!files) return
-    for (const f of Array.from(files)) {
-      if (!f.type.startsWith('image/')) continue
-      setImages(imgs => [...imgs, { name: f.name, url: '', data_url: '', b64: '', uploading: true }])
+  async function addFiles(list: FileList | File[] | null) {
+    if (!list) return
+    for (const f of Array.from(list)) {
+      const placeholder: PendingFile = { name: f.name, kind: 'file', size: f.size, uploading: true }
+      setFiles(fs => [...fs, placeholder])
       try {
         const up = await p.onUpload(f)
-        setImages(imgs => imgs.map(i => (i.name === f.name && i.uploading ? { ...i, ...up, uploading: false } : i)))
+        setFiles(fs => fs.map(x => (x.name === f.name && x.uploading ? { ...x, ...up, uploading: false } : x)))
       } catch {
-        setImages(imgs => imgs.filter(i => !(i.name === f.name && i.uploading)))
+        setFiles(fs => fs.filter(x => !(x.name === f.name && x.uploading)))
       }
     }
     if (fileRef.current) fileRef.current.value = ''
@@ -51,27 +56,45 @@ export function Composer(p: Props) {
 
   function submit() {
     if (!canSend) return
-    p.onSend(text, images)
+    p.onSend(text, files)
     setText('')
-    setImages([])
+    setFiles([])
     if (taRef.current) taRef.current.style.height = 'auto'
   }
 
   return (
-    <div className="composer">
-      {images.length > 0 && (
+    <div
+      className={`composer ${dragging ? 'dragging' : ''}`}
+      onDragOver={e => {
+        e.preventDefault()
+        setDragging(true)
+      }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={e => {
+        e.preventDefault()
+        setDragging(false)
+        addFiles(e.dataTransfer.files)
+      }}
+    >
+      {dragging && <div className="drop-hint">Drop files to attach</div>}
+
+      {files.length > 0 && (
         <div className="composer-pending">
-          {images.map((img, i) => (
-            <div className="pending-chip" key={i}>
-              {img.data_url ? (
-                <img src={img.data_url} alt="" />
+          {files.map((f, i) => (
+            <div className="pending-chip" key={i} title={f.name}>
+              {f.data_url ? (
+                <img src={f.data_url} alt="" />
               ) : (
-                <span className="spinner" />
+                <span className="chip-icon">{f.uploading ? <span className="spinner" /> : KIND_ICON[f.kind] || '📎'}</span>
               )}
-              <span style={{ maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {img.uploading ? 'Uploading…' : img.name}
+              <span className="chip-meta">
+                <span className="chip-name">{f.uploading ? 'Uploading…' : f.name}</span>
+                {!f.uploading && f.size ? <span className="chip-size">{fmtBytes(f.size)}</span> : null}
               </span>
-              <span className="rm" onClick={() => setImages(imgs => imgs.filter((_, j) => j !== i))}>
+              <span
+                className="rm"
+                onClick={() => setFiles(fs => fs.filter((_, j) => j !== i))}
+              >
                 ✕
               </span>
             </div>
@@ -83,7 +106,7 @@ export function Composer(p: Props) {
         ref={taRef}
         rows={1}
         value={text}
-        placeholder="Message Asthra…"
+        placeholder="Message Asthra…  (attach images, PDFs, docs — or drag & drop)"
         disabled={p.disabled}
         onChange={e => setText(e.target.value)}
         onKeyDown={e => {
@@ -95,10 +118,17 @@ export function Composer(p: Props) {
       />
 
       <div className="composer-row">
-        <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={e => handleFiles(e.target.files)} />
-        <button className="tool-btn" onClick={() => fileRef.current?.click()} title="Attach image">
-          🖼
-          <span className="tip">Attach image</span>
+        <input
+          ref={fileRef}
+          type="file"
+          accept={ACCEPT}
+          multiple
+          hidden
+          onChange={e => addFiles(e.target.files)}
+        />
+        <button className="tool-btn" onClick={() => fileRef.current?.click()} title="Attach files">
+          📎
+          <span className="tip">Attach files</span>
         </button>
         <button
           className={`tool-btn ${p.think ? 'active' : ''}`}

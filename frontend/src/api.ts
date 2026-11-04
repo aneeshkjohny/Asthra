@@ -20,12 +20,27 @@ export interface Conversation {
   messages?: Message[]
 }
 
+export type AttachmentKind = 'image' | 'text' | 'code' | 'data' | 'pdf' | 'office' | 'file'
+
+export interface Attachment {
+  id?: string
+  name: string
+  kind: AttachmentKind
+  mime?: string
+  size?: number
+  url?: string
+  b64?: string
+  data_url?: string
+  text?: string
+}
+
 export interface Message {
   id: string
   conversation_id: string
   role: 'user' | 'assistant' | 'system'
   content: string
   thinking?: string | null
+  attachments?: Attachment[]
   images: string[]
   created_at: string
 }
@@ -98,7 +113,7 @@ export const api = {
   async chat(
     payload: {
       model: string
-      messages: { role: string; content: string; images?: string[] }[]
+      messages: { role: string; content: string; images?: string[]; attachments?: Attachment[] }[]
       system?: string
       temperature?: number
       max_tokens?: number
@@ -150,7 +165,7 @@ export const api = {
     }).then(() => undefined)
   },
 
-  upload(file: File): Promise<{ name: string; url: string; data_url: string; b64: string }> {
+  upload(file: File): Promise<Attachment> {
     const form = new FormData()
     form.append('file', file)
     return fetch(`${BASE}/api/upload`, { method: 'POST', body: form }).then(r => json(r))

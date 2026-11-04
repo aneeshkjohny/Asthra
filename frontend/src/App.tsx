@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, type Conversation, type Message, type Model, type Settings, type ChatChunk } from './api'
 import { Sidebar } from './components/Sidebar'
 import { Message as MessageView } from './components/Message'
-import { Composer, type PendingImage } from './components/Composer'
+import { Composer, type PendingFile } from './components/Composer'
 import { SettingsModal } from './components/Settings'
 
 const SUGGESTIONS = [
@@ -134,9 +134,9 @@ export default function App() {
     abortRef.current?.abort()
   }
 
-  async function handleSend(text: string, images: PendingImage[]) {
+  async function handleSend(text: string, files: PendingFile[]) {
     const textToSend = text.trim()
-    if (!textToSend && images.length === 0) return
+    if (!textToSend && files.length === 0) return
 
     let convId = activeId
     let conv = convId
@@ -158,7 +158,11 @@ export default function App() {
       conversation_id: convId!,
       role: 'user',
       content: textToSend,
-      images: images.map(i => i.name),
+      attachments: files.map(f => ({
+        id: f.id, name: f.name, kind: f.kind, mime: f.mime, size: f.size,
+        url: f.url, data_url: f.data_url, b64: f.b64,
+      })),
+      images: files.filter(f => f.kind === 'image').map(f => f.name),
       created_at: new Date().toISOString(),
     }
     const history = [...messages, userMsg]
@@ -175,7 +179,11 @@ export default function App() {
     try {
       const apiMessages = history
         .filter(m => m.role !== 'system')
-        .map(m => ({ role: m.role, content: m.content, images: m.images.length ? m.images : undefined }))
+        .map(m => ({
+          role: m.role,
+          content: m.content,
+          attachments: m.attachments && m.attachments.length ? m.attachments : undefined,
+        }))
 
       const finalStats = await api.chat(
         {
@@ -231,9 +239,9 @@ export default function App() {
     }
   }
 
-  async function handleUpload(file: File): Promise<PendingImage> {
+  async function handleUpload(file: File): Promise<PendingFile> {
     const up = await api.upload(file)
-    return { name: up.name, url: up.url, data_url: up.data_url, b64: up.b64, uploading: false }
+    return { ...up, uploading: false }
   }
 
   async function regenerate() {

@@ -340,6 +340,26 @@ input, textarea, select { font-family: inherit; color: inherit; }
 .pending-chip img { width: 34px; height: 34px; border-radius: 6px; object-fit: cover; }
 .pending-chip .rm { width: 20px; height: 20px; border-radius: 5px; display: grid; place-items: center; color: var(--text-faint); }
 .pending-chip .rm:hover { background: var(--border); color: var(--danger); }
+.pending-chip .chip-icon { width: 34px; height: 34px; border-radius: 7px; display: grid; place-items: center; font-size: 18px; background: var(--surface); border: 1px solid var(--border); flex: 0 0 auto; }
+.pending-chip .chip-meta { display: flex; flex-direction: column; min-width: 0; max-width: 180px; }
+.pending-chip .chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pending-chip .chip-size { font-size: 11px; color: var(--text-faint); }
+.composer.dragging { border-color: var(--accent); border-style: dashed; box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow-md); }
+.composer .drop-hint {
+  position: absolute; inset: 0; display: grid; place-items: center; border-radius: 14px;
+  background: var(--accent-soft); color: var(--accent); font-size: 14px; font-weight: 600;
+  backdrop-filter: blur(1px); pointer-events: none;
+}
+.composer { position: relative; }
+.user-docs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.doc-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px 4px 7px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px;
+  max-width: 240px;
+}
+.doc-chip .doc-icon { font-size: 15px; }
+.doc-chip .doc-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-chip .doc-size { font-size: 11px; color: var(--text-faint); flex: 0 0 auto; }
 .composer textarea {
   width: 100%; border: none; outline: none; resize: none; background: transparent;
   font-size: 15px; line-height: 1.5; max-height: 220px; min-height: 26px; padding: 4px 0;
