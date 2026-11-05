@@ -17,7 +17,7 @@ router = APIRouter()
 async def upload(file: UploadFile = File(...)) -> dict:
     raw = await file.read()
     if len(raw) > config.MAX_UPLOAD:
-        raise HTTPException(413, "File too large (max 20 MB)")
+        raise HTTPException(413, f"File too large (max {config.MAX_UPLOAD_MB} MB)")
 
     stored = uuid.uuid4().hex + os.path.splitext(file.filename or "")[1]
     path = os.path.join(config.UPLOAD_DIR, stored)

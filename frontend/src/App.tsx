@@ -334,6 +334,7 @@ export default function App() {
               onSend={handleSend}
               onStop={stopStreaming}
               onUpload={handleUpload}
+              onError={m => setToast(m)}
             />
           </div>
         </div>

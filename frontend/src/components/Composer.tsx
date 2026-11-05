@@ -14,6 +14,7 @@ interface Props {
   onSend: (text: string, files: PendingFile[]) => void
   onStop: () => void
   onUpload: (file: File) => Promise<PendingFile>
+  onError?: (msg: string) => void
 }
 
 const ACCEPT =
@@ -47,8 +48,9 @@ export function Composer(p: Props) {
       try {
         const up = await p.onUpload(f)
         setFiles(fs => fs.map(x => (x.name === f.name && x.uploading ? { ...x, ...up, uploading: false } : x)))
-      } catch {
+      } catch (e: any) {
         setFiles(fs => fs.filter(x => !(x.name === f.name && x.uploading)))
+        p.onError?.(e?.message || `Upload failed: ${f.name}`)
       }
     }
     if (fileRef.current) fileRef.current.value = ''

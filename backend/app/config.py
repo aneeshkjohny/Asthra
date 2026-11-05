@@ -16,7 +16,8 @@ PORT = int(os.environ.get("ASTHRA_PORT", "8787"))
 # Local-only by default. Set ASTHRA_HOST=0.0.0.0 to allow LAN access.
 HOST = os.environ.get("ASTHRA_HOST", "127.0.0.1")
 
-# Limits
-MAX_UPLOAD = 20 * 1024 * 1024  # 20 MB
+# Limits (overridable per-machine via env var, in megabytes)
+MAX_UPLOAD_MB = int(os.environ.get("ASTHRA_MAX_UPLOAD_MB", "100"))
+MAX_UPLOAD = MAX_UPLOAD_MB * 1024 * 1024
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)

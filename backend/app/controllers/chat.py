@@ -1,13 +1,15 @@
 """Controller: model listing, streaming chat (proxy to Ollama), and
 persistence of the assistant's turn."""
 import json
-from typing import Any, Dict
+import os
+from typing import Any, Dict, List
 
 import httpx
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from .. import config
+from .. import ingest
 from ..models import conversation as conversations
 from ..models import message as messages
 from ..schemas import ChatRequest
@@ -38,12 +40,43 @@ async def list_models() -> Any:
     return models
 
 
+def _attachment_context(atts: List[Dict[str, Any]]) -> str:
+    """Extract the text of non-image attachments (PDF / doc / code) read from disk,
+    formatted as a prompt block the model can read."""
+    blocks = []
+    for a in atts or []:
+        if a.get("kind") == "image":
+            continue  # images are handled via the vision `images` field
+        name = a.get("name") or a.get("id") or "file"
+        fid = a.get("id") or os.path.basename(a.get("url") or name)
+        path = os.path.join(config.UPLOAD_DIR, os.path.basename(fid))
+        if not os.path.isfile(path):
+            continue
+        text = ingest.extract_text(path, name, a.get("kind", ""))
+        if text and text.strip():
+            blocks.append(f"[File: {name}]\n{text}")
+        else:
+            blocks.append(
+                f"[File: {name}] — no readable text found (may be a scanned/image-only "
+                "document; OCR is not enabled yet)."
+            )
+    return "\n\n".join(blocks)
+
+
 def _ollama_body(req: ChatRequest) -> Dict[str, Any]:
     """Translate our request into Ollama's /api/chat body (M -> C translation)."""
     msgs = []
     for m in req.messages:
-        entry: Dict[str, Any] = {"role": m.get("role", "user"), "content": m.get("content", "")}
         atts = m.get("attachments") or []
+        entry: Dict[str, Any] = {"role": m.get("role", "user"), "content": m.get("content", "")}
+
+        # Phase 1: feed the text of non-image attachments (PDF / doc / code) into the prompt.
+        doc_ctx = _attachment_context(atts)
+        if doc_ctx:
+            base = (m.get("content") or "").strip()
+            entry["content"] = (base + "\n\n" if base else "") + "Attached file contents:\n\n" + doc_ctx
+
+        # Images go to the vision `images` field (base64).
         img_b64 = [a.get("b64") for a in atts if a.get("kind") == "image" and a.get("b64")]
         if img_b64:
             entry["images"] = img_b64
