@@ -4,11 +4,13 @@ import { Sidebar } from './components/Sidebar'
 import { Message as MessageView } from './components/Message'
 import { Composer, type PendingFile } from './components/Composer'
 import { SettingsModal } from './components/Settings'
+import { ArtifactPane } from './components/ArtifactPane'
+import { extractArtifact, type Artifact } from './artifact'
 
 const SUGGESTIONS = [
   { icon: '✎', text: 'Explain a concept in simple terms' },
+  { icon: '◆', text: 'Build me a small interactive HTML page or chart' },
   { icon: '⌘', text: 'Help me write and debug some code' },
-  { icon: '✦', text: 'Brainstorm ideas for a project' },
   { icon: '⇄', text: 'Summarize or rewrite a piece of text' },
 ]
 
@@ -21,6 +23,7 @@ export default function App() {
   const [skills, setSkills] = useState<Skill[]>([])
   const [pinned, setPinned] = useState<string[]>([])
   const [settingsTab, setSettingsTab] = useState<'prefs' | 'skills'>('prefs')
+  const [artifact, setArtifact] = useState<{ msgId: string; a: Artifact } | null>(null)
   const [model, setModel] = useState<string>('')
   const [theme, setTheme] = useState<'light' | 'dark'>(() => (localStorage.getItem('asthra-theme') as 'light' | 'dark') || 'light')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -89,6 +92,7 @@ export default function App() {
     setActiveId(id)
     setStats(null)
     if (loadedConv.current === id) return
+    setArtifact(null)
     const conv = await api.conversation(id)
     setMessages(conv.messages ?? [])
     setSettings(conv.settings ?? {})
@@ -104,6 +108,7 @@ export default function App() {
     setSettings({})
     setPinned([])
     setStats(null)
+    setArtifact(null)
     loadedConv.current = null
     setSidebarCollapsed(window.innerWidth < 720 ? false : sidebarCollapsed)
   }
@@ -114,6 +119,7 @@ export default function App() {
       if (activeId === id) {
         setActiveId(null)
         setMessages([])
+        setArtifact(null)
         loadedConv.current = null
       }
       await refreshConversations()
@@ -135,6 +141,11 @@ export default function App() {
     if (activeId) {
       api.updateConversation(activeId, { settings: s }).then(() => refreshConversations()).catch(() => {})
     }
+  }
+
+  function openArtifact(msg: { id: string; content: string }) {
+    const a = extractArtifact(msg.content)
+    if (a) setArtifact({ msgId: msg.id, a })
   }
 
   function openSettings(tab: 'prefs' | 'skills') {
@@ -267,7 +278,13 @@ export default function App() {
       if (acc || accThink) {
         await api.persistAssistant(convId!, acc, accThink || null)
         const fresh = await api.conversation(convId!)
-        setMessages(fresh.messages ?? [])
+        const freshMsgs = fresh.messages ?? []
+        setMessages(freshMsgs)
+        const last = freshMsgs[freshMsgs.length - 1]
+        if (last && last.role === 'assistant') {
+          const a = extractArtifact(last.content)
+          if (a) setArtifact({ msgId: last.id, a })
+        }
       }
       void finalStats
       await refreshConversations()
@@ -334,6 +351,8 @@ export default function App() {
           </div>
         </div>
 
+        <div className="panes">
+        <div className="chat-col">
         <div className="messages-wrap">
           {messages.length === 0 ? (
             <div className="empty">
@@ -359,6 +378,8 @@ export default function App() {
                   stats={i === messages.length - 1 && m.role === 'assistant' ? stats : null}
                   isLast={i === messages.length - 1}
                   onRegenerate={i === messages.length - 1 && m.role === 'assistant' && !streaming ? regenerate : undefined}
+                  hasArtifact={m.role === 'assistant' && !streaming ? !!extractArtifact(m.content) : false}
+                  onOpenArtifact={m.role === 'assistant' ? () => openArtifact(m) : undefined}
                 />
               ))}
               <div ref={bottomRef} />
@@ -383,6 +404,12 @@ export default function App() {
               onAddSkill={() => openSettings('skills')}
             />
           </div>
+        </div>
+        </div>
+
+          {artifact && (
+            <ArtifactPane artifact={artifact.a} onClose={() => setArtifact(null)} />
+          )}
         </div>
       </div>
 

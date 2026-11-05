@@ -79,9 +79,11 @@ interface Props {
   stats?: { duration_s: number; eval_count: number } | null
   isLast?: boolean
   onRegenerate?: () => void
+  hasArtifact?: boolean
+  onOpenArtifact?: () => void
 }
 
-export const Message = memo(function Message({ msg, streaming, stats, isLast, onRegenerate }: Props) {
+export const Message = memo(function Message({ msg, streaming, stats, isLast, onRegenerate, hasArtifact, onOpenArtifact }: Props) {
   const isUser = msg.role === 'user'
 
   return (
@@ -101,6 +103,11 @@ export const Message = memo(function Message({ msg, streaming, stats, isLast, on
             <Markdown text={msg.content || (streaming ? '' : '')} streaming={streaming} />
             {!streaming && (msg.content || isLast) && (
               <div className="msg-actions">
+                {hasArtifact && onOpenArtifact && (
+                  <button className="action artifact-action" onClick={onOpenArtifact}>
+                    ◆ Open artifact
+                  </button>
+                )}
                 {msg.content && <CopyText text={msg.content} />}
                 {isLast && onRegenerate && (
                   <button className="action" onClick={onRegenerate}>
