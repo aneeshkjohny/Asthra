@@ -40,27 +40,42 @@ async def list_models() -> Any:
     return models
 
 
-def _attachment_context(atts: List[Dict[str, Any]]) -> str:
-    """Extract the text of non-image attachments (PDF / doc / code) read from disk,
-    formatted as a prompt block the model can read."""
+def _attachment_parts(atts: List[Dict[str, Any]]):
+    """Return (text_block, extra_image_b64s) for a message's non-image attachments.
+
+    Text-based files (PDF / doc / code) contribute their extracted text. A *scanned*
+    PDF (no text layer) contributes rendered page images for the vision model to read.
+    """
     blocks = []
+    extra_images = []
     for a in atts or []:
         if a.get("kind") == "image":
-            continue  # images are handled via the vision `images` field
+            continue
         name = a.get("name") or a.get("id") or "file"
         fid = a.get("id") or os.path.basename(a.get("url") or name)
         path = os.path.join(config.UPLOAD_DIR, os.path.basename(fid))
         if not os.path.isfile(path):
             continue
+
+        is_pdf = a.get("kind") == "pdf" or os.path.splitext(name)[1].lower() == ".pdf"
+        if is_pdf and ingest.pdf_text_is_thin(path):
+            imgs = ingest.render_pdf_pages_b64(path)
+            if imgs:
+                extra_images.extend(imgs)
+                blocks.append(
+                    f"[File: {name}] (scanned document — {len(imgs)} page image(s) are "
+                    f"attached for the model to read)"
+                )
+            else:
+                blocks.append(f"[File: {name}] (could not read this PDF)")
+            continue
+
         text = ingest.extract_text(path, name, a.get("kind", ""))
         if text and text.strip():
             blocks.append(f"[File: {name}]\n{text}")
         else:
-            blocks.append(
-                f"[File: {name}] — no readable text found (may be a scanned/image-only "
-                "document; OCR is not enabled yet)."
-            )
-    return "\n\n".join(blocks)
+            blocks.append(f"[File: {name}] (no readable text found)")
+    return "\n\n".join(blocks), extra_images
 
 
 def _ollama_body(req: ChatRequest) -> Dict[str, Any]:
@@ -71,15 +86,17 @@ def _ollama_body(req: ChatRequest) -> Dict[str, Any]:
         entry: Dict[str, Any] = {"role": m.get("role", "user"), "content": m.get("content", "")}
 
         # Phase 1: feed the text of non-image attachments (PDF / doc / code) into the prompt.
-        doc_ctx = _attachment_context(atts)
+        # Phase 2: a scanned PDF instead contributes rendered page images for the model.
+        doc_ctx, page_images = _attachment_parts(atts)
         if doc_ctx:
             base = (m.get("content") or "").strip()
             entry["content"] = (base + "\n\n" if base else "") + "Attached file contents:\n\n" + doc_ctx
 
-        # Images go to the vision `images` field (base64).
-        img_b64 = [a.get("b64") for a in atts if a.get("kind") == "image" and a.get("b64")]
-        if img_b64:
-            entry["images"] = img_b64
+        # Images go to the vision `images` field: attached images + rendered scanned-PDF pages.
+        imgs = [a.get("b64") for a in atts if a.get("kind") == "image" and a.get("b64")]
+        imgs += page_images
+        if imgs:
+            entry["images"] = imgs
         elif m.get("images"):
             entry["images"] = m["images"]  # legacy back-compat
         msgs.append(entry)

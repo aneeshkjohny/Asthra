@@ -10,9 +10,14 @@ Everything is best-effort and bounded: extraction never throws out of this modul
 and the returned text is capped so one huge file can't blow the model's context.
 """
 import os
+from typing import List
 
 # Cap extracted text per file (chars). Override with ASTHRA_MAX_EXTRACT_CHARS.
 MAX_CHARS = int(os.environ.get("ASTHRA_MAX_EXTRACT_CHARS", "20000"))
+
+# Max pages to render for a scanned PDF (override with ASTHRA_MAX_OCR_PAGES).
+MAX_PDF_PAGES = int(os.environ.get("ASTHRA_MAX_OCR_PAGES", "6"))
+_THIN_TEXT_CHARS = 40
 
 _TEXT_EXTS = {
     ".txt", ".md", ".markdown", ".log", ".text", ".rst",
@@ -89,3 +94,46 @@ def _xlsx(path: str) -> str:
     finally:
         wb.close()
     return "\n".join(lines)
+
+
+# --- Phase 2: scanned-PDF support -----------------------------------------
+# Some PDFs have no selectable text (each page is a picture). We detect those
+# and render the pages to images so the vision model can read them directly.
+
+def pdf_text_is_thin(path: str, min_chars: int = _THIN_TEXT_CHARS) -> bool:
+    """True if the PDF has little or no selectable text (i.e. scanned/image pages)."""
+    from pypdf import PdfReader
+    reader = PdfReader(path)
+    total = 0
+    for page in reader.pages:
+        try:
+            t = page.extract_text() or ""
+        except Exception:
+            t = ""
+        total += len("".join(t.split()))
+        if total >= min_chars:
+            return False
+    return total < min_chars
+
+
+def render_pdf_pages_b64(path: str, max_pages: int = MAX_PDF_PAGES,
+                         jpg_quality: int = 82, max_side: int = 1400) -> List[str]:
+    """Render up to `max_pages` PDF pages to JPEG base64 strings (for the vision model)."""
+    import base64
+    import fitz
+    out: List[str] = []
+    doc = fitz.open(path)
+    try:
+        for i in range(min(len(doc), max_pages)):
+            page = doc[i]
+            rect = page.rect
+            scale = max_side / max(rect.width, rect.height, 1)
+            zoom = min(max(scale, 1.0), 2.6)
+            pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
+            if pix.alpha:
+                pix = fitz.Pixmap(fitz.csRGB, pix)
+            jpg = pix.tobytes("jpeg", jpg_quality)
+            out.append(base64.b64encode(jpg).decode())
+    finally:
+        doc.close()
+    return out
