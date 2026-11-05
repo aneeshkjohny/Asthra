@@ -9,17 +9,19 @@ from .. import database as db
 from ..views.serializers import row_to_conversation
 
 
-def create(title: str, model: str, settings: Dict[str, Any]) -> Dict[str, Any]:
+def create(title: str, model: str, settings: Dict[str, Any],
+           skills: Optional[List[str]] = None) -> Dict[str, Any]:
+    skills = skills or []
     conv_id = uuid.uuid4().hex
     now = datetime.utcnow().isoformat()
     db.execute(
-        "INSERT INTO conversations (id, title, model, settings, created_at, updated_at)"
-        " VALUES (?,?,?,?,?,?)",
-        (conv_id, title, model, json.dumps(settings or {}), now, now),
+        "INSERT INTO conversations (id, title, model, settings, skills, created_at, updated_at)"
+        " VALUES (?,?,?,?,?,?,?)",
+        (conv_id, title, model, json.dumps(settings or {}), json.dumps(skills), now, now),
     )
     return {
         "id": conv_id, "title": title, "model": model, "settings": settings or {},
-        "created_at": now, "updated_at": now,
+        "skills": skills, "created_at": now, "updated_at": now,
     }
 
 
@@ -35,10 +37,10 @@ def get(conv_id: str) -> Optional[Dict[str, Any]]:
 
 def update(conv_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
     fields, values = [], []
-    for key in ("title", "model", "settings"):
+    for key in ("title", "model", "settings", "skills"):
         if key in body:
             fields.append(f"{key}=?")
-            values.append(json.dumps(body[key]) if key == "settings" else body[key])
+            values.append(json.dumps(body[key]) if key in ("settings", "skills") else body[key])
     values.append(conv_id)
     if fields:
         db.execute(f"UPDATE conversations SET {', '.join(fields)} WHERE id=?", values)

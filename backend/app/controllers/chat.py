@@ -2,7 +2,7 @@
 persistence of the assistant's turn."""
 import json
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import httpx
 from fastapi import APIRouter, HTTPException
@@ -128,16 +128,56 @@ async def _build_entry(m: Dict[str, Any], client: httpx.AsyncClient) -> Dict[str
     return entry
 
 
-async def _ollama_body(req: ChatRequest) -> Dict[str, Any]:
+def _apply_skills(req: ChatRequest) -> Tuple[str, List[Dict[str, Any]]]:
+    """Fold skill instructions into the system prompt.
+
+    Two ways a skill is active for a turn:
+      - pinned to the conversation (stored in conversations.skills)
+      - invoked in the latest user message via /<name>
+
+    Returns (effective_system_prompt, cleaned_messages).
+    """
+    from ..models import skills as skills_model
+
+    names: List[str] = []
+    if req.conversation_id:
+        conv = conversations.get(req.conversation_id)
+        for n in (conv or {}).get("skills") or []:
+            if n not in names:
+                names.append(n)
+
+    msgs = [dict(m) for m in req.messages]
+    for i in range(len(msgs) - 1, -1, -1):
+        if msgs[i].get("role") == "user":
+            text = msgs[i].get("content") or ""
+            text, invoked = skills_model.extract_invocations(text)
+            msgs[i]["content"] = text
+            for n in invoked:
+                if n not in names:
+                    names.append(n)
+            break
+
+    blocks = skills_model.resolve(names)
+    base = (req.system or "").strip()
+    if blocks:
+        system = (base + "\n\n" if base else "") + \
+            "Active skills (follow these instructions for this reply):\n\n" + "\n\n".join(blocks)
+    else:
+        system = req.system or ""
+    return system, msgs
+
+
+async def _ollama_body(req: ChatRequest, system: str,
+                       msgs_in: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Translate our request into Ollama's /api/chat body (M -> C translation)."""
     msgs: List[Dict[str, Any]] = []
     async with httpx.AsyncClient(timeout=httpx.Timeout(180, connect=15)) as client:
-        for m in req.messages:
+        for m in msgs_in:
             msgs.append(await _build_entry(m, client))
 
     body: Dict[str, Any] = {"model": req.model, "messages": msgs, "stream": True}
-    if req.system:
-        body["messages"].insert(0, {"role": "system", "content": req.system})
+    if system:
+        body["messages"].insert(0, {"role": "system", "content": system})
     options: Dict[str, Any] = {"temperature": req.temperature}
     if req.max_tokens:
         options["num_predict"] = req.max_tokens
@@ -149,7 +189,8 @@ async def _ollama_body(req: ChatRequest) -> Dict[str, Any]:
 
 @router.post("/api/chat")
 async def chat(req: ChatRequest) -> Any:
-    body = await _ollama_body(req)
+    system, msgs = _apply_skills(req)
+    body = await _ollama_body(req, system, msgs)
 
     async def stream() -> Any:
         async with httpx.AsyncClient(timeout=httpx.Timeout(300, connect=10)) as client:
@@ -181,9 +222,9 @@ async def chat(req: ChatRequest) -> Any:
                         }
                     yield f"data: {json.dumps(out)}\n\n"
 
-    # Persist the user's turn immediately.
+    # Persist the user's turn immediately (cleaned of any /skill tokens).
     if req.conversation_id:
-        last_user = next((m for m in reversed(req.messages) if m.get("role") == "user"), None)
+        last_user = next((m for m in reversed(msgs) if m.get("role") == "user"), None)
         if last_user:
             messages.add(req.conversation_id, "user", last_user.get("content", ""),
                          last_user.get("attachments"))

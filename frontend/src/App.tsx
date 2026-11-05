@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, type Conversation, type Message, type Model, type Settings, type ChatChunk } from './api'
+import { api, type Conversation, type Message, type Model, type Settings, type ChatChunk, type Skill } from './api'
 import { Sidebar } from './components/Sidebar'
 import { Message as MessageView } from './components/Message'
 import { Composer, type PendingFile } from './components/Composer'
@@ -18,6 +18,9 @@ export default function App() {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [settings, setSettings] = useState<Settings>({})
+  const [skills, setSkills] = useState<Skill[]>([])
+  const [pinned, setPinned] = useState<string[]>([])
+  const [settingsTab, setSettingsTab] = useState<'prefs' | 'skills'>('prefs')
   const [model, setModel] = useState<string>('')
   const [theme, setTheme] = useState<'light' | 'dark'>(() => (localStorage.getItem('asthra-theme') as 'light' | 'dark') || 'light')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -58,6 +61,7 @@ export default function App() {
         const [ms, convs] = await Promise.all([api.models(), api.conversations()])
         setModels(ms)
         setConversations(convs)
+        try { setSkills(await api.skills()) } catch { /* skills are optional */ }
         if (ms.length && !model) setModel(ms[0].name)
         if (convs.length) {
           const first = convs[0]
@@ -65,6 +69,7 @@ export default function App() {
           setMessages(first.messages ?? (await api.conversation(first.id)).messages ?? [])
           setSettings(first.settings ?? {})
           setModel(first.model)
+          setPinned(first.skills ?? [])
           loadedConv.current = first.id
         }
       } catch (e: any) {
@@ -88,6 +93,7 @@ export default function App() {
     setMessages(conv.messages ?? [])
     setSettings(conv.settings ?? {})
     setModel(conv.model)
+    setPinned(conv.skills ?? [])
     loadedConv.current = id
   }
 
@@ -96,6 +102,7 @@ export default function App() {
     setActiveId(null)
     setMessages([])
     setSettings({})
+    setPinned([])
     setStats(null)
     loadedConv.current = null
     setSidebarCollapsed(window.innerWidth < 720 ? false : sidebarCollapsed)
@@ -130,6 +137,41 @@ export default function App() {
     }
   }
 
+  function openSettings(tab: 'prefs' | 'skills') {
+    setSettingsTab(tab)
+    setShowSettings(true)
+  }
+
+  async function refreshSkills() {
+    try {
+      const list = await api.skills()
+      setSkills(list)
+      const names = new Set(list.map(s => s.name))
+      setPinned(prev => prev.filter(n => names.has(n)))
+      if (activeId) {
+        const kept = pinned.filter(n => names.has(n))
+        if (kept.length !== pinned.length) {
+          api.updateConversation(activeId, { skills: kept }).then(() => refreshConversations()).catch(() => {})
+        }
+      }
+    } catch (e: any) {
+      setToast(e.message)
+    }
+  }
+
+  async function toggleSkill(name: string, on: boolean) {
+    const next = on ? Array.from(new Set([...pinned, name])) : pinned.filter(n => n !== name)
+    setPinned(next)
+    if (activeId) {
+      try {
+        await api.updateConversation(activeId, { skills: next })
+        await refreshConversations()
+      } catch (e: any) {
+        setToast(e.message)
+      }
+    }
+  }
+
   function stopStreaming() {
     abortRef.current?.abort()
   }
@@ -145,7 +187,7 @@ export default function App() {
 
     // Create conversation if needed
     if (!conv) {
-      conv = await api.createConversation('New chat', model, settings)
+      conv = await api.createConversation('New chat', model, settings, pinned)
       convId = conv.id
       setActiveId(conv.id)
       loadedConv.current = conv.id
@@ -277,7 +319,7 @@ export default function App() {
         onDelete={deleteConversation}
         onModel={setModelForAll}
         onTheme={() => setTheme(t => (t === 'light' ? 'dark' : 'light'))}
-        onOpenSettings={() => setShowSettings(true)}
+        onOpenSettings={() => openSettings('prefs')}
       />
 
       <div className="main">
@@ -335,6 +377,10 @@ export default function App() {
               onStop={stopStreaming}
               onUpload={handleUpload}
               onError={m => setToast(m)}
+              skills={skills}
+              pinned={pinned}
+              onToggleSkill={toggleSkill}
+              onAddSkill={() => openSettings('skills')}
             />
           </div>
         </div>
@@ -346,6 +392,10 @@ export default function App() {
           modelCapabilities={caps}
           onSave={saveSettings}
           onClose={() => setShowSettings(false)}
+          initialTab={settingsTab}
+          skills={skills}
+          onSkillsChanged={refreshSkills}
+          onError={m => setToast(m)}
         />
       )}
 

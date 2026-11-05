@@ -15,9 +15,17 @@ export interface Conversation {
   title: string
   model: string
   settings: Settings
+  skills?: string[]
   created_at: string
   updated_at: string
   messages?: Message[]
+}
+
+export interface Skill {
+  name: string
+  description: string
+  content?: string
+  body?: string
 }
 
 export type AttachmentKind = 'image' | 'text' | 'code' | 'data' | 'pdf' | 'office' | 'file'
@@ -89,15 +97,15 @@ export const api = {
     return fetch(`${BASE}/api/conversations/${id}`).then(r => json<Conversation>(r))
   },
 
-  createConversation(title: string, model: string, settings: Settings): Promise<Conversation> {
+  createConversation(title: string, model: string, settings: Settings, skills: string[] = []): Promise<Conversation> {
     return fetch(`${BASE}/api/conversations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, model, settings }),
+      body: JSON.stringify({ title, model, settings, skills }),
     }).then(r => json<Conversation>(r))
   },
 
-  updateConversation(id: string, patch: Partial<Pick<Conversation, 'title' | 'model' | 'settings'>>): Promise<Conversation> {
+  updateConversation(id: string, patch: Partial<Pick<Conversation, 'title' | 'model' | 'settings' | 'skills'>>): Promise<Conversation> {
     return fetch(`${BASE}/api/conversations/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -169,5 +177,33 @@ export const api = {
     const form = new FormData()
     form.append('file', file)
     return fetch(`${BASE}/api/upload`, { method: 'POST', body: form }).then(r => json(r))
+  },
+
+  skills(): Promise<Skill[]> {
+    return fetch(`${BASE}/api/skills`).then(r => json<Skill[]>(r))
+  },
+
+  skill(name: string): Promise<Skill> {
+    return fetch(`${BASE}/api/skills/${name}`).then(r => json<Skill>(r))
+  },
+
+  createSkill(name: string, description: string, content: string): Promise<Skill> {
+    return fetch(`${BASE}/api/skills`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, description, content }),
+    }).then(r => json<Skill>(r))
+  },
+
+  updateSkill(name: string, description: string, content: string): Promise<Skill> {
+    return fetch(`${BASE}/api/skills/${name}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description, content }),
+    }).then(r => json<Skill>(r))
+  },
+
+  deleteSkill(name: string): Promise<void> {
+    return fetch(`${BASE}/api/skills/${name}`, { method: 'DELETE' }).then(() => undefined)
   },
 }

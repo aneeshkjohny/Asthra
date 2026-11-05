@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS conversations (
     title TEXT NOT NULL,
     model TEXT NOT NULL,
     settings TEXT NOT NULL DEFAULT '{}',
+    skills TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -68,6 +69,9 @@ def _migrate(c: sqlite3.Connection) -> None:
     cols = [r["name"] for r in c.execute("PRAGMA table_info(messages)").fetchall()]
     if "attachments" not in cols:
         c.execute("ALTER TABLE messages ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'")
+    cconv = [r["name"] for r in c.execute("PRAGMA table_info(conversations)").fetchall()]
+    if "skills" not in cconv:
+        c.execute("ALTER TABLE conversations ADD COLUMN skills TEXT NOT NULL DEFAULT '[]'")
 
 
 def init_db() -> None:

@@ -1,14 +1,22 @@
 import { useEffect, useState } from 'react'
-import type { Settings as S } from '../api'
+import type { Settings as S, Skill } from '../api'
+import { SkillsManager } from './SkillsManager'
+
+type Tab = 'prefs' | 'skills'
 
 interface Props {
   initial: S
   modelCapabilities: string[]
   onSave: (s: S) => void
   onClose: () => void
+  initialTab?: Tab
+  skills?: Skill[]
+  onSkillsChanged?: () => void
+  onError?: (msg: string) => void
 }
 
 export function SettingsModal(p: Props) {
+  const [tab, setTab] = useState<Tab>(p.initialTab ?? 'prefs')
   const [system, setSystem] = useState(p.initial.system ?? '')
   const [temperature, setTemperature] = useState(p.initial.temperature ?? 0.7)
   const [maxTokens, setMaxTokens] = useState(p.initial.max_tokens ?? 2048)
@@ -35,12 +43,18 @@ export function SettingsModal(p: Props) {
 
   return (
     <div className="overlay" onClick={e => e.target === e.currentTarget && p.onClose()}>
-      <div className="modal">
+      <div className={`modal ${tab === 'skills' ? 'wide' : ''}`}>
         <div className="modal-head">
-          <h2>Chat settings</h2>
+          <h2>{tab === 'skills' ? 'Skills' : 'Chat settings'}</h2>
           <button className="icon-btn" onClick={p.onClose}>✕</button>
         </div>
+        <div className="modal-tabs">
+          <button className={`tab ${tab === 'prefs' ? 'on' : ''}`} onClick={() => setTab('prefs')}>Preferences</button>
+          <button className={`tab ${tab === 'skills' ? 'on' : ''}`} onClick={() => setTab('skills')}>Skills</button>
+        </div>
         <div className="modal-body">
+          {tab === 'prefs' ? (
+          <>
           <div className="field">
             <label>System prompt</label>
             <textarea
@@ -92,6 +106,14 @@ export function SettingsModal(p: Props) {
             <button className="btn btn-ghost" onClick={p.onClose}>Cancel</button>
             <button className="btn btn-primary" onClick={save}>Save</button>
           </div>
+          </>
+          ) : (
+            <SkillsManager
+              skills={p.skills ?? []}
+              onChanged={p.onSkillsChanged ?? (() => {})}
+              onError={p.onError}
+            />
+          )}
         </div>
       </div>
     </div>

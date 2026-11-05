@@ -21,6 +21,7 @@ def create_conv(body: dict) -> dict:
         title=body.get("title", "New chat"),
         model=body.get("model", "qwen3.8:latest"),
         settings=body.get("settings", {}),
+        skills=body.get("skills", []),
     )
 
 

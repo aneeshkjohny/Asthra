@@ -4,11 +4,13 @@ from typing import Any, Dict
 
 
 def row_to_conversation(row) -> Dict[str, Any]:
+    keys = row.keys()
     return {
         "id": row["id"],
         "title": row["title"],
         "model": row["model"],
         "settings": json.loads(row["settings"] or "{}"),
+        "skills": json.loads(row["skills"] or "[]") if "skills" in keys else [],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }

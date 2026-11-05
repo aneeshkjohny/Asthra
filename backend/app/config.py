@@ -20,4 +20,8 @@ HOST = os.environ.get("ASTHRA_HOST", "127.0.0.1")
 MAX_UPLOAD_MB = int(os.environ.get("ASTHRA_MAX_UPLOAD_MB", "100"))
 MAX_UPLOAD = MAX_UPLOAD_MB * 1024 * 1024
 
+# Skills (Phase 3): instruction bundles. Each skill is a folder with instruction.md
+# or a single .md file under this directory (see skills/).
+SKILLS_DIR = os.path.join(PROJECT_ROOT, "skills")
+
 os.makedirs(UPLOAD_DIR, exist_ok=True)

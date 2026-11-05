@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from . import config
 from . import database as db
 from . import __version__
-from .controllers import chat, conversations, uploads
+from .controllers import chat, conversations, skills, uploads
 
 
 @asynccontextmanager
@@ -33,6 +33,7 @@ def create_app() -> FastAPI:
     app.include_router(chat.router)
     app.include_router(conversations.router)
     app.include_router(uploads.router)
+    app.include_router(skills.router)
 
     # Frontend (production build), if present
     if os.path.isdir(config.DIST_DIR):
