@@ -25,7 +25,7 @@ Browser  →  http://localhost:8787 (FastAPI backend)
 
 - Python 3.8+ with `pip`
 - Node.js 18+ (only needed to build the frontend)
-- Ollama running with at least one model (`ollama pull qwen3.8`)
+- Ollama — `./start.sh` can install it and pull a model for you, or run `ollama pull <model>` yourself
 
 ## Quick start
 
@@ -33,15 +33,27 @@ Browser  →  http://localhost:8787 (FastAPI backend)
 ./start.sh
 ```
 
+On first run it walks you through setup, step by step:
+
+1. Installs the **Python** and **Node** dependencies (if missing)
+2. Checks **Ollama** — starts it if it's installed but stopped, or offers to install it
+3. Checks for a **model** — if you don't have one, offers to download one (or pick a custom one)
+4. Builds the web UI, then launches it
+
 Then open **http://localhost:8787** in your browser.
+
+### Useful flags
+
+```bash
+./start.sh --dev      # Vite dev server on :5173 (hot reload) + backend on :8787
+./start.sh --setup    # run the setup steps only, then stop (don't launch)
+./start.sh --yes      # non-interactive: accept defaults, never prompt
+./start.sh --help     # show all options
+```
 
 ### Development mode (hot reload)
 
-```bash
-./start.sh --dev
-```
-
-Backend on `:8787`, Vite dev server with HMR on `:5173`.
+`./start.sh --dev` runs the backend on `:8787` plus the Vite dev server with HMR on `:5173`.
 
 ## Configuration
 
