@@ -11,6 +11,7 @@ class ChatRequest(BaseModel):
     temperature: float = 0.7
     max_tokens: Optional[int] = None
     think: bool = False
+    tools: bool = False               # enable the local tool-calling loop (calculator / python / now)
     conversation_id: Optional[str] = None
 
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, type Conversation, type Message, type Model, type Settings, type ChatChunk, type Skill } from './api'
+import { api, type Conversation, type Message, type Model, type Settings, type ChatChunk, type Skill, type ToolCall, type SearchResult } from './api'
 import { Sidebar } from './components/Sidebar'
 import { Message as MessageView } from './components/Message'
 import { Composer, type PendingFile } from './components/Composer'
@@ -13,6 +13,31 @@ const SUGGESTIONS = [
   { icon: '⌘', text: 'Help me write and debug some code' },
   { icon: '⇄', text: 'Summarize or rewrite a piece of text' },
 ]
+
+function ExportMenu({ convId, title }: { convId: string; title: string }) {
+  const [open, setOpen] = useState(false)
+  const go = (fmt: 'md' | 'html') => {
+    window.location.href = api.exportUrl(convId, fmt)
+    setOpen(false)
+  }
+  return (
+    <div className="export-wrap">
+      <button className="hamburger export-btn" onClick={() => setOpen(o => !o)} title="Export conversation">
+        ⤓
+      </button>
+      {open && (
+        <>
+          <div className="popover-backdrop" onClick={() => setOpen(false)} />
+          <div className="export-menu">
+            <div className="export-menu-label">{title}</div>
+            <button onClick={() => go('md')}>⭳ Markdown (.md)</button>
+            <button onClick={() => go('html')}>⭳ HTML (.html)</button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
 
 export default function App() {
   const [models, setModels] = useState<Model[]>([])
@@ -32,9 +57,12 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const abortRef = useRef<AbortController | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const loadedConv = useRef<string | null>(null)
+  const searchTimer = useRef<any>(null)
 
   const currentModel = models.find(m => m.name === model)
   const caps = currentModel?.capabilities ?? []
@@ -187,6 +215,28 @@ export default function App() {
     abortRef.current?.abort()
   }
 
+  function doSearch(q: string) {
+    setSearchQuery(q)
+    if (searchTimer.current) clearTimeout(searchTimer.current)
+    if (!q.trim()) {
+      setSearchResults([])
+      return
+    }
+    searchTimer.current = setTimeout(async () => {
+      try {
+        setSearchResults(await api.search(q))
+      } catch (e: any) {
+        setToast(e.message)
+      }
+    }, 200)
+  }
+
+  function pickResult(r: SearchResult) {
+    setSearchQuery('')
+    setSearchResults([])
+    selectConversation(r.conversation_id)
+  }
+
   async function handleSend(text: string, files: PendingFile[]) {
     const textToSend = text.trim()
     if (!textToSend && files.length === 0) return
@@ -225,6 +275,20 @@ export default function App() {
 
     let acc = ''
     let accThink = ''
+    let accTools: ToolCall[] = []
+
+    const upsertAssistant = (patch: Partial<Message>) => {
+      setMessages(prev => {
+        const last = prev[prev.length - 1]
+        if (last && last.id === 'streaming') {
+          return [...prev.slice(0, -1), { ...last, ...patch }]
+        }
+        return [...prev, {
+          id: 'streaming', conversation_id: convId!, role: 'assistant',
+          content: '', images: [], created_at: new Date().toISOString(), ...patch,
+        }]
+      })
+    }
 
     const controller = new AbortController()
     abortRef.current = controller
@@ -246,6 +310,7 @@ export default function App() {
           temperature: settings.temperature ?? 0.7,
           max_tokens: settings.max_tokens,
           think: settings.think ?? false,
+          tools: caps.includes('tools'),
           conversation_id: convId!,
         },
         chunk => {
@@ -253,30 +318,33 @@ export default function App() {
             setToast(`Error: ${chunk.error}`)
             return
           }
-          if (chunk.content) {
-            acc += chunk.content
-            setMessages(prev => {
-              const last = prev[prev.length - 1]
-              if (last && last.role === 'assistant' && last.id === 'streaming') {
-                return [...prev.slice(0, -1), { ...last, content: acc, thinking: accThink || undefined }]
-              }
-              return [...prev, {
-                id: 'streaming', conversation_id: convId!, role: 'assistant',
-                content: acc, thinking: accThink || undefined, images: [], created_at: new Date().toISOString(),
-              }]
-            })
-          }
           if (chunk.thinking) {
             accThink += chunk.thinking
+            return
           }
-          if (chunk.stats) setStats(chunk.stats)
+          if (chunk.stats) {
+            setStats(chunk.stats)
+            return
+          }
+          if (chunk.tool) {
+            accTools.push(chunk.tool)
+            upsertAssistant({ content: acc, thinking: accThink || undefined, tools: [...accTools] })
+            return
+          }
+          if (chunk.content) {
+            acc += chunk.content
+            upsertAssistant({
+              content: acc, thinking: accThink || undefined,
+              tools: accTools.length ? [...accTools] : undefined,
+            })
+          }
         },
         controller.signal,
       )
 
       // Persist assistant turn server-side
-      if (acc || accThink) {
-        await api.persistAssistant(convId!, acc, accThink || null)
+      if (acc || accThink || accTools.length) {
+        await api.persistAssistant(convId!, acc, accThink || null, accTools.length ? accTools : null)
         const fresh = await api.conversation(convId!)
         const freshMsgs = fresh.messages ?? []
         setMessages(freshMsgs)
@@ -337,6 +405,10 @@ export default function App() {
         onModel={setModelForAll}
         onTheme={() => setTheme(t => (t === 'light' ? 'dark' : 'light'))}
         onOpenSettings={() => openSettings('prefs')}
+        searchQuery={searchQuery}
+        searchResults={searchResults}
+        onSearch={doSearch}
+        onPickResult={pickResult}
       />
 
       <div className="main">
@@ -345,9 +417,17 @@ export default function App() {
             ☰
           </button>
           <div className="conv-title">{activeId ? conversations.find(c => c.id === activeId)?.title : 'New chat'}</div>
-          <div className="badge">
-            <span className="dot" />
-            {model || 'no model'}
+          <div className="topbar-right">
+            {activeId && (
+              <ExportMenu
+                convId={activeId}
+                title={conversations.find(c => c.id === activeId)?.title || 'Conversation'}
+              />
+            )}
+            <div className="badge">
+              <span className="dot" />
+              {model || 'no model'}
+            </div>
           </div>
         </div>
 

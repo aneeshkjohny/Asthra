@@ -42,6 +42,12 @@ export interface Attachment {
   text?: string
 }
 
+export interface ToolCall {
+  name: string
+  args?: Record<string, unknown>
+  result?: string
+}
+
 export interface Message {
   id: string
   conversation_id: string
@@ -50,6 +56,16 @@ export interface Message {
   thinking?: string | null
   attachments?: Attachment[]
   images: string[]
+  tools?: ToolCall[]
+  created_at: string
+}
+
+export interface SearchResult {
+  conversation_id: string
+  conversation_title: string
+  message_id: string
+  role: string
+  snippet: string
   created_at: string
 }
 
@@ -63,6 +79,7 @@ export interface Settings {
 export interface ChatChunk {
   content?: string
   thinking?: string
+  tool?: ToolCall
   done?: boolean
   stats?: {
     duration_s: number
@@ -126,6 +143,7 @@ export const api = {
       temperature?: number
       max_tokens?: number
       think?: boolean
+      tools?: boolean
       conversation_id?: string
     },
     onChunk: (c: ChatChunk) => void,
@@ -165,12 +183,24 @@ export const api = {
     return stats
   },
 
-  persistAssistant(conversationId: string, content: string, thinking?: string | null): Promise<void> {
+  persistAssistant(conversationId: string, content: string,
+                   thinking?: string | null, tools?: ToolCall[] | null): Promise<void> {
     return fetch(`${BASE}/api/chat/persist`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ conversation_id: conversationId, content, thinking }),
+      body: JSON.stringify({
+        conversation_id: conversationId, content, thinking,
+        tools: tools && tools.length ? tools : null,
+      }),
     }).then(() => undefined)
+  },
+
+  search(q: string): Promise<SearchResult[]> {
+    return fetch(`${BASE}/api/search?q=${encodeURIComponent(q)}`).then(r => json<SearchResult[]>(r))
+  },
+
+  exportUrl(conversationId: string, format: 'md' | 'html'): string {
+    return `${BASE}/api/conversations/${conversationId}/export?format=${format}`
   },
 
   upload(file: File): Promise<Attachment> {

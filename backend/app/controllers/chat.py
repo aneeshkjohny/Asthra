@@ -187,40 +187,132 @@ async def _ollama_body(req: ChatRequest, system: str,
     return body
 
 
+# Safety cap on how many tool-call rounds we run per turn (calculator / python / now
+# are fast and local; this mainly guards against a model that keeps asking for tools).
+MAX_TOOL_ITERATIONS = 6
+
+
+def _merge_tool_calls(merged: List[Dict[str, Any]], incoming: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Accumulate Ollama/OpenAI-style tool calls, which may stream across chunks.
+
+    Handles dict `arguments` (single chunk) as well as JSON-string fragments, and
+    parallel calls keyed by `function.index`.
+    """
+    for tc in incoming:
+        fn = tc.get("function", {})
+        idx = fn.get("index", 0)
+        while len(merged) <= idx:
+            merged.append({"function": {"index": idx, "name": "", "arguments": {}}})
+        target = merged[idx]
+        if "id" in tc and "id" not in target:
+            target["id"] = tc["id"]
+        tfn = target["function"]
+        if fn.get("name"):
+            tfn["name"] = fn["name"]
+        args = fn.get("arguments")
+        if isinstance(args, dict):
+            tfn["arguments"].update(args)
+        elif isinstance(args, str) and args:
+            target.setdefault("_raw_args", "")
+            target["_raw_args"] += args
+    return merged
+
+
+def _finalize_tool_calls(tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Ensure every call has a dict `arguments`; parse any accumulated JSON string."""
+    out: List[Dict[str, Any]] = []
+    for tc in tool_calls:
+        t = dict(tc)
+        raw = t.pop("_raw_args", None)
+        fn = dict(t.get("function", {}))
+        args = fn.get("arguments")
+        if isinstance(args, str):
+            try:
+                fn["arguments"] = json.loads(args or "{}")
+            except ValueError:
+                fn["arguments"] = {}
+        if raw:
+            try:
+                fn["arguments"] = json.loads(raw)
+            except ValueError:
+                pass
+        fn.setdefault("arguments", {})
+        t["function"] = fn
+        out.append(t)
+    return out
+
+
 @router.post("/api/chat")
 async def chat(req: ChatRequest) -> Any:
     system, msgs = _apply_skills(req)
-    body = await _ollama_body(req, system, msgs)
+    base_body = await _ollama_body(req, system, msgs)
+    if req.tools:
+        from .. import tools as tools_module
+        base_body["tools"] = tools_module.TOOLS
 
     async def stream() -> Any:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(300, connect=10)) as client:
-            async with client.stream("POST", f"{config.OLLAMA_URL}/api/chat", json=body) as r:
-                if r.status_code != 200:
-                    err = (await r.aread()).decode("utf-8", "replace")
-                    yield f"data: {json.dumps({'error': err, 'status': r.status_code})}\n\n"
-                    return
-                async for line in r.aiter_lines():
-                    if not line.strip():
-                        continue
-                    try:
-                        chunk = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    out: Dict[str, Any] = {}
-                    msg = chunk.get("message", {})
-                    out["content"] = msg.get("content", "")
-                    if msg.get("thinking"):
-                        out["thinking"] = msg["thinking"]
-                    if chunk.get("done"):
-                        out["done"] = True
-                        out["stats"] = {
-                            "duration_s": round(chunk.get("total_duration", 0) / 1e9, 2),
-                            "eval_count": chunk.get("eval_count", 0),
-                            "eval_duration_s": round(
-                                (chunk.get("eval_count", 0) and chunk.get("eval_duration", 0) / 1e9) or 0, 2),
-                            "prompt_eval_count": chunk.get("prompt_eval_count", 0),
-                        }
-                    yield f"data: {json.dumps(out)}\n\n"
+        from .. import tools as tools_module
+        work_msgs: List[Dict[str, Any]] = list(base_body["messages"])
+        acc = {"total_duration": 0, "eval_count": 0, "eval_duration": 0, "prompt_eval_count": 0}
+
+        for _ in range(MAX_TOOL_ITERATIONS):
+            body = dict(base_body)
+            body["messages"] = work_msgs
+            async with httpx.AsyncClient(timeout=httpx.Timeout(300, connect=10)) as client:
+                async with client.stream("POST", f"{config.OLLAMA_URL}/api/chat", json=body) as r:
+                    if r.status_code != 200:
+                        err = (await r.aread()).decode("utf-8", "replace")
+                        yield f"data: {json.dumps({'error': err, 'status': r.status_code})}\n\n"
+                        return
+                    tool_calls: List[Dict[str, Any]] = []
+                    async for line in r.aiter_lines():
+                        if not line.strip():
+                            continue
+                        try:
+                            chunk = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        msg = chunk.get("message", {})
+                        out: Dict[str, Any] = {}
+                        content = msg.get("content", "")
+                        if content:
+                            out["content"] = content
+                        if msg.get("thinking"):
+                            out["thinking"] = msg["thinking"]
+                        # Tool calls can arrive in a chunk BEFORE the final done chunk
+                        # (and across several chunks), so capture them from any chunk.
+                        in_tc = msg.get("tool_calls") or []
+                        if in_tc:
+                            _merge_tool_calls(tool_calls, in_tc)
+                        if chunk.get("done"):
+                            acc["total_duration"] += chunk.get("total_duration", 0) or 0
+                            acc["eval_count"] += chunk.get("eval_count", 0) or 0
+                            acc["eval_duration"] += chunk.get("eval_duration", 0) or 0
+                            acc["prompt_eval_count"] += chunk.get("prompt_eval_count", 0) or 0
+                        if out:
+                            yield f"data: {json.dumps(out)}\n\n"
+
+            if not tool_calls:
+                break  # model produced its final answer
+
+            # Record the assistant's tool-call turn + each tool result, then loop.
+            tool_calls = _finalize_tool_calls(tool_calls)
+            work_msgs.append({"role": "assistant", "content": "", "tool_calls": tool_calls})
+            for tc in tool_calls:
+                fn = tc.get("function", {})
+                name = fn.get("name", "")
+                args = fn.get("arguments", {})
+                result = tools_module.execute(name, args)
+                work_msgs.append({"role": "tool", "name": name, "content": result})
+                yield f"data: {json.dumps({'tool': {'name': name, 'args': args, 'result': result}})}\n\n"
+
+        stats = {
+            "duration_s": round(acc["total_duration"] / 1e9, 2),
+            "eval_count": acc["eval_count"],
+            "eval_duration_s": round((acc["eval_count"] and acc["eval_duration"] / 1e9) or 0, 2),
+            "prompt_eval_count": acc["prompt_eval_count"],
+        }
+        yield f"data: {json.dumps({'done': True, 'stats': stats})}\n\n"
 
     # Persist the user's turn immediately (cleaned of any /skill tokens).
     if req.conversation_id:
@@ -245,5 +337,8 @@ def persist_assistant(req: Dict[str, Any]) -> Any:
         raise HTTPException(400, "conversation_id required")
     if not conversations.get(conv_id):
         raise HTTPException(404, "Conversation not found")
-    return messages.add(conv_id, "assistant", req.get("content", ""),
-                        thinking=req.get("thinking") or None)
+    return messages.add(
+        conv_id, "assistant", req.get("content", ""),
+        thinking=req.get("thinking") or None,
+        tools=req.get("tools") or None,
+    )

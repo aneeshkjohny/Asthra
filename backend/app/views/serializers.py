@@ -24,6 +24,7 @@ def row_to_message(row) -> Dict[str, Any]:
         legacy = json.loads(row["images"] or "[]")
         attachments = [{"name": n, "kind": "image", "url": f"/api/uploads/{n}"} for n in legacy]
     images = [a.get("name") for a in attachments if a.get("kind") == "image"]
+    tools = json.loads(row["tools"] or "[]") if "tools" in keys else []
     return {
         "id": row["id"],
         "conversation_id": row["conversation_id"],
@@ -32,6 +33,7 @@ def row_to_message(row) -> Dict[str, Any]:
         "thinking": row["thinking"],
         "attachments": attachments,
         "images": images,
+        "tools": tools,
         "created_at": row["created_at"],
     }
 

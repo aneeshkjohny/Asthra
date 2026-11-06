@@ -1,9 +1,11 @@
-"""Controller: conversation CRUD and per-conversation messages."""
-from fastapi import APIRouter, HTTPException
+"""Controller: conversation CRUD, per-conversation messages, search, and export."""
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import Response
 
 from ..models import conversation as conversations
 from ..models import message as messages
 from ..schemas import MessageIn
+from ..views import export as views_export
 
 router = APIRouter()
 
@@ -13,6 +15,28 @@ def _get_or_404(conv_id: str) -> dict:
     if not conv:
         raise HTTPException(404, "Conversation not found")
     return conv
+
+
+@router.get("/api/search")
+def search(q: str = Query("", description="Search term (message content or title)")) -> list:
+    return messages.search(q)
+
+
+@router.get("/api/conversations/{conv_id}/export")
+def export_conv(conv_id: str, format: str = "md") -> Response:
+    """Download the whole conversation as Markdown or standalone HTML."""
+    conv = _get_or_404(conv_id)
+    msgs = messages.list_for(conv_id)
+    if format == "html":
+        body, media, ext = views_export.render_html(conv, msgs), "text/html", "html"
+    else:
+        body, media, ext = views_export.render_md(conv, msgs), "text/markdown", "md"
+    filename = (conv.get("title") or "conversation").replace("/", "-").replace(" ", "_")[:60]
+    return Response(
+        content=body,
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="{filename}.{ext}"'},
+    )
 
 
 @router.post("/api/conversations")

@@ -1,7 +1,43 @@
 import { memo, useState } from 'react'
 import { Markdown } from './Markdown'
-import type { Attachment, Message as Msg } from '../api'
+import type { Attachment, Message as Msg, ToolCall } from '../api'
 import { KIND_ICON, fmtBytes } from '../util'
+
+function formatArgs(args?: Record<string, unknown>): string {
+  if (!args) return ''
+  try {
+    const s = JSON.stringify(args)
+    return s.length > 140 ? s.slice(0, 140) + '…' : s
+  } catch {
+    return String(args)
+  }
+}
+
+function ToolsBlock({ tools }: { tools: ToolCall[] }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className={`thinking tools ${open ? 'open' : ''}`}>
+      <div className="thinking-head" onClick={() => setOpen(o => !o)}>
+        <span className="spark">⚙</span>
+        <span>Used {tools.length} tool{tools.length > 1 ? 's' : ''}</span>
+        <span className="caret">›</span>
+      </div>
+      {open && (
+        <div className="thinking-body tools-body">
+          {tools.map((t, i) => (
+            <div className="tool-call" key={i}>
+              <div className="tool-head">
+                <code className="tool-name">{t.name}</code>
+                {formatArgs(t.args) && <code className="tool-args">{formatArgs(t.args)}</code>}
+              </div>
+              {t.result != null && t.result !== '' && <pre className="tool-result">{t.result}</pre>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function ThinkingBlock({ text }: { text: string }) {
   const [open, setOpen] = useState(false)
@@ -100,6 +136,7 @@ export const Message = memo(function Message({ msg, streaming, stats, isLast, on
         ) : (
           <>
             {msg.thinking ? <ThinkingBlock text={msg.thinking} /> : null}
+            {msg.tools && msg.tools.length > 0 ? <ToolsBlock tools={msg.tools} /> : null}
             <Markdown text={msg.content || (streaming ? '' : '')} streaming={streaming} />
             {!streaming && (msg.content || isLast) && (
               <div className="msg-actions">

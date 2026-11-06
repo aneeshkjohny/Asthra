@@ -1,4 +1,4 @@
-import { type Model, type Conversation } from '../api'
+import { type Model, type Conversation, type SearchResult } from '../api'
 
 interface Props {
   collapsed: boolean
@@ -13,6 +13,10 @@ interface Props {
   onModel: (name: string) => void
   onTheme: () => void
   onOpenSettings: () => void
+  searchQuery: string
+  searchResults: SearchResult[]
+  onSearch: (q: string) => void
+  onPickResult: (r: SearchResult) => void
 }
 
 export function Sidebar(p: Props) {
@@ -29,33 +33,70 @@ export function Sidebar(p: Props) {
         <span className="plus">＋</span> New chat
       </button>
 
-      <div className="conv-list">
-        {p.conversations.length === 0 ? (
-          <div className="conv-empty">No conversations yet</div>
-        ) : (
-          <div className="conv-group-label">History</div>
+      <div className="search-wrap">
+        <span className="search-ico">⌕</span>
+        <input
+          className="search-input"
+          placeholder="Search chats…"
+          value={p.searchQuery}
+          onChange={e => p.onSearch(e.target.value)}
+        />
+        {p.searchQuery && (
+          <button className="search-clear" title="Clear search" onClick={() => p.onSearch('')}>✕</button>
         )}
-        {p.conversations.map(c => (
-          <div
-            key={c.id}
-            className={`conv-item ${c.id === p.activeId ? 'active' : ''}`}
-            onClick={() => p.onSelect(c.id)}
-            title={c.title}
-          >
-            <span className="title">{c.title}</span>
-            <span
-              className="del"
-              title="Delete"
-              onClick={e => {
-                e.stopPropagation()
-                p.onDelete(c.id)
-              }}
-            >
-              ✕
-            </span>
-          </div>
-        ))}
       </div>
+
+      {p.searchQuery ? (
+        <div className="conv-list search-results">
+          <div className="conv-group-label">Results</div>
+          {p.searchResults.length === 0 ? (
+            <div className="conv-empty">No matches</div>
+          ) : (
+            p.searchResults.map(r => (
+              <div
+                key={r.message_id}
+                className="search-result"
+                onClick={() => p.onPickResult(r)}
+                title={r.conversation_title}
+              >
+                <div className="sr-title">
+                  <span className="sr-name">{r.conversation_title}</span>
+                  <span className="sr-role">{r.role === 'user' ? 'you' : 'asthra'}</span>
+                </div>
+                <div className="sr-snippet">{r.snippet}</div>
+              </div>
+            ))
+          )}
+        </div>
+      ) : (
+        <div className="conv-list">
+          {p.conversations.length === 0 ? (
+            <div className="conv-empty">No conversations yet</div>
+          ) : (
+            <div className="conv-group-label">History</div>
+          )}
+          {p.conversations.map(c => (
+            <div
+              key={c.id}
+              className={`conv-item ${c.id === p.activeId ? 'active' : ''}`}
+              onClick={() => p.onSelect(c.id)}
+              title={c.title}
+            >
+              <span className="title">{c.title}</span>
+              <span
+                className="del"
+                title="Delete"
+                onClick={e => {
+                  e.stopPropagation()
+                  p.onDelete(c.id)
+                }}
+              >
+                ✕
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="sidebar-footer">
         <div className="model-select-wrap">

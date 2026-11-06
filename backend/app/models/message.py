@@ -26,16 +26,18 @@ def _slim(a: Dict[str, Any]) -> Dict[str, Any]:
 
 def add(conv_id: str, role: str, content: str,
         attachments: Optional[List[Dict[str, Any]]] = None,
-        thinking: Optional[str] = None) -> Dict[str, Any]:
+        thinking: Optional[str] = None,
+        tools: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     attachments = [_slim(a) for a in (attachments or [])]
     image_names = [a.get("name") for a in attachments if a.get("kind") == "image"]
+    tools = tools or []
     msg_id = uuid.uuid4().hex
     now = datetime.utcnow().isoformat()
     db.execute(
-        "INSERT INTO messages (id, conversation_id, role, content, thinking, images, attachments, created_at)"
-        " VALUES (?,?,?,?,?,?,?,?)",
+        "INSERT INTO messages (id, conversation_id, role, content, thinking, images, attachments, tools, created_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?)",
         (msg_id, conv_id, role, content, thinking,
-         _json(image_names), _json(attachments), now),
+         _json(image_names), _json(attachments), _json(tools), now),
     )
     db.execute(
         "UPDATE conversations SET updated_at=? WHERE id=?",
@@ -44,7 +46,7 @@ def add(conv_id: str, role: str, content: str,
     return {
         "id": msg_id, "conversation_id": conv_id, "role": role, "content": content,
         "thinking": thinking, "attachments": attachments, "images": image_names,
-        "created_at": now,
+        "tools": tools, "created_at": now,
     }
 
 
@@ -59,3 +61,52 @@ def auto_title(conv_id: str, user_text: str) -> None:
     title = re.sub(r"\s+", " ", user_text or "").strip()[:60]
     if title:
         conversation.set_title_if_default(conv_id, title)
+
+
+def search(q: str, limit: int = 50) -> List[Dict[str, Any]]:
+    """Full-text-ish search (LIKE) over message content and conversation titles.
+
+    Returns recent matches, each with a short snippet centered on the first hit.
+    """
+    q = (q or "").strip()
+    if not q:
+        return []
+    like = f"%{q}%"
+    rows = db.get_all(
+        """
+        SELECT m.id AS message_id, m.conversation_id, m.role, m.content,
+               m.created_at, c.title AS conversation_title
+        FROM messages m
+        JOIN conversations c ON c.id = m.conversation_id
+        WHERE m.content LIKE ? OR c.title LIKE ?
+        ORDER BY m.created_at DESC, m.rowid DESC
+        LIMIT ?
+        """,
+        (like, like, limit),
+    )
+    q_lower = q.lower()
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        content = r["content"] or ""
+        idx = content.lower().find(q_lower)
+        if idx >= 0:
+            start = max(0, idx - 60)
+            end = min(len(content), idx + 90)
+            snippet = content[start:end].replace("\n", " ")
+            if start > 0:
+                snippet = "…" + snippet
+            if end < len(content):
+                snippet = snippet + "…"
+        else:
+            snippet = re.sub(r"\s+", " ", content[:140])
+            if len(content) > 140:
+                snippet += "…"
+        out.append({
+            "conversation_id": r["conversation_id"],
+            "conversation_title": r["conversation_title"],
+            "message_id": r["message_id"],
+            "role": r["role"],
+            "snippet": snippet,
+            "created_at": r["created_at"],
+        })
+    return out
