@@ -698,6 +698,7 @@ input, textarea, select { font-family: inherit; color: inherit; }
 .proj-new:hover { background: var(--accent-soft); color: var(--accent); }
 .proj-conv { padding-left: 26px; }
 .proj-sub-empty { padding: 6px 12px 6px 26px; font-size: 12.5px; text-align: left; }
+.proj-none { padding: 4px 12px 8px 26px; font-size: 12.5px; color: var(--text-faint); text-align: left; }
 
 /* Projects manager (modal) */
 .pm-row { display: flex; align-items: center; gap: 8px; padding: 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
