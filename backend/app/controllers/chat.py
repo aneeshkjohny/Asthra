@@ -128,23 +128,57 @@ async def _build_entry(m: Dict[str, Any], client: httpx.AsyncClient) -> Dict[str
     return entry
 
 
-def _apply_skills(req: ChatRequest) -> Tuple[str, List[Dict[str, Any]]]:
-    """Fold skill instructions into the system prompt.
+# Cap on the combined text of a project's files used as shared context (chars).
+PROJECT_DOCS_LIMIT = int(os.environ.get("ASTHRA_PROJECT_DOCS_LIMIT", "120000"))
 
-    Two ways a skill is active for a turn:
-      - pinned to the conversation (stored in conversations.skills)
-      - invoked in the latest user message via /<name>
 
+def _project_documents(proj: Dict[str, Any]) -> str:
+    """Text extracted from a project's files, to share as context across its chats."""
+    from ..models import project as projects_model
+    blocks: List[str] = []
+    for f in projects_model.file_paths(proj["id"]):
+        if f.get("kind") == "image":
+            continue  # images need the vision path, not plain-text context
+        text = ingest.extract_text(f["path"], f["name"], f.get("kind", ""))
+        if text and text.strip() and "could not extract" not in text:
+            blocks.append(f"[Project file: {f['name']}]\n{text}")
+    if not blocks:
+        return ""
+    joined = "\n\n".join(blocks)
+    if len(joined) > PROJECT_DOCS_LIMIT:
+        joined = joined[:PROJECT_DOCS_LIMIT] + "\n\n[... project documents truncated ...]"
+    return "Project documents (shared context for this project):\n\n" + joined
+
+
+def _apply_context(req: ChatRequest) -> Tuple[str, List[Dict[str, Any]]]:
+    """Build the effective system prompt for a turn.
+
+    Layers, in order:
+      - the conversation's project system prompt (base, if the chat is in a project)
+      - the conversation's own system prompt (req.system) — augments the project base
+      - skills: the project's default skills + the chat's pinned skills + any /name invoked
+      - the project's shared documents (extracted text from its files)
+
+    A skill is active when pinned to the project, pinned to the conversation, or
+    invoked in the latest user message via /<name>.
     Returns (effective_system_prompt, cleaned_messages).
     """
     from ..models import skills as skills_model
+    from ..models import project as projects_model
 
+    conv = conversations.get(req.conversation_id) if req.conversation_id else None
+    proj = None
+    if conv and conv.get("project_id"):
+        proj = projects_model.get(conv["project_id"])
+
+    # --- active skill names (ordered, deduped) ---
     names: List[str] = []
-    if req.conversation_id:
-        conv = conversations.get(req.conversation_id)
-        for n in (conv or {}).get("skills") or []:
-            if n not in names:
-                names.append(n)
+    for n in (proj or {}).get("default_skills") or []:
+        if n not in names:
+            names.append(n)
+    for n in (conv or {}).get("skills") or []:
+        if n not in names:
+            names.append(n)
 
     msgs = [dict(m) for m in req.messages]
     for i in range(len(msgs) - 1, -1, -1):
@@ -157,14 +191,24 @@ def _apply_skills(req: ChatRequest) -> Tuple[str, List[Dict[str, Any]]]:
                     names.append(n)
             break
 
+    # --- assemble the system prompt ---
+    parts: List[str] = []
+    base = ((proj or {}).get("system_prompt") or "").strip()
+    conv_system = (req.system or "").strip()
+    if base and conv_system:
+        parts.append(base + "\n\n" + conv_system)
+    elif base or conv_system:
+        parts.append(base or conv_system)
+
     blocks = skills_model.resolve(names)
-    base = (req.system or "").strip()
     if blocks:
-        system = (base + "\n\n" if base else "") + \
-            "Active skills (follow these instructions for this reply):\n\n" + "\n\n".join(blocks)
-    else:
-        system = req.system or ""
-    return system, msgs
+        parts.append("Active skills (follow these instructions for this reply):\n\n" + "\n\n".join(blocks))
+
+    docs = _project_documents(proj) if proj else ""
+    if docs:
+        parts.append(docs)
+
+    return "\n\n".join(parts), msgs
 
 
 async def _ollama_body(req: ChatRequest, system: str,
@@ -244,7 +288,7 @@ def _finalize_tool_calls(tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any
 
 @router.post("/api/chat")
 async def chat(req: ChatRequest) -> Any:
-    system, msgs = _apply_skills(req)
+    system, msgs = _apply_context(req)
     base_body = await _ollama_body(req, system, msgs)
     if req.tools:
         from .. import tools as tools_module

@@ -1,4 +1,5 @@
-import { type Model, type Conversation, type SearchResult } from '../api'
+import { useState } from 'react'
+import { type Model, type Conversation, type SearchResult, type Project } from '../api'
 
 interface Props {
   collapsed: boolean
@@ -7,12 +8,16 @@ interface Props {
   models: Model[]
   currentModel: string
   theme: 'light' | 'dark'
-  onNew: () => void
+  projects: Project[]
+  onNew: (projectId?: string | null) => void
   onSelect: (id: string) => void
   onDelete: (id: string) => void
   onModel: (name: string) => void
   onTheme: () => void
   onOpenSettings: () => void
+  onNewProject: () => void
+  onOpenProject: (id: string) => void
+  onNewInProject: (id: string) => void
   searchQuery: string
   searchResults: SearchResult[]
   onSearch: (q: string) => void
@@ -20,6 +25,14 @@ interface Props {
 }
 
 export function Sidebar(p: Props) {
+  const [open, setOpen] = useState<Record<string, boolean>>({})
+  const isOpen = (id: string) => open[id] ?? true
+  const general = p.conversations.filter(c => !c.project_id)
+  const projectGroups = p.projects.map(pr => ({
+    pr,
+    convs: p.conversations.filter(c => c.project_id === pr.id),
+  }))
+
   return (
     <aside className={`sidebar ${p.collapsed ? 'collapsed' : ''}`}>
       <div className="sidebar-header">
@@ -29,7 +42,7 @@ export function Sidebar(p: Props) {
         </div>
       </div>
 
-      <button className="new-chat-btn" onClick={p.onNew}>
+      <button className="new-chat-btn" onClick={() => p.onNew()}>
         <span className="plus">＋</span> New chat
       </button>
 
@@ -70,12 +83,66 @@ export function Sidebar(p: Props) {
         </div>
       ) : (
         <div className="conv-list">
-          {p.conversations.length === 0 ? (
-            <div className="conv-empty">No conversations yet</div>
-          ) : (
-            <div className="conv-group-label">History</div>
+          {projectGroups.length > 0 && (
+            <div className="proj-section">
+              <div className="conv-group-label proj-head">
+                <span>Projects</span>
+                <button className="proj-add" title="New project" onClick={p.onNewProject}>＋</button>
+              </div>
+              {projectGroups.map(({ pr, convs }) => (
+                <div key={pr.id} className="proj-group">
+                  <div
+                    className="proj-row"
+                    onClick={() => p.onOpenProject(pr.id)}
+                    title="Manage this project"
+                  >
+                    <button
+                      className="proj-caret"
+                      title={isOpen(pr.id) ? 'Collapse' : 'Expand'}
+                      onClick={e => { e.stopPropagation(); setOpen(o => ({ ...o, [pr.id]: !isOpen(pr.id) })) }}
+                    >
+                      {isOpen(pr.id) ? '▾' : '▸'}
+                    </button>
+                    <span className="proj-name">▣ {pr.name}</span>
+                    <span className="proj-count">{convs.length}</span>
+                    <button
+                      className="proj-new"
+                      title="New chat in this project"
+                      onClick={e => { e.stopPropagation(); p.onNewInProject(pr.id) }}
+                    >
+                      ＋
+                    </button>
+                  </div>
+                  {isOpen(pr.id) && convs.length === 0 && (
+                    <div className="conv-empty proj-sub-empty">No chats yet — use ＋ to start one</div>
+                  )}
+                  {isOpen(pr.id) && convs.map(c => (
+                    <div
+                      key={c.id}
+                      className={`conv-item proj-conv ${c.id === p.activeId ? 'active' : ''}`}
+                      onClick={() => p.onSelect(c.id)}
+                      title={c.title}
+                    >
+                      <span className="title">{c.title}</span>
+                      <span
+                        className="del"
+                        title="Delete"
+                        onClick={e => { e.stopPropagation(); p.onDelete(c.id) }}
+                      >
+                        ✕
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
           )}
-          {p.conversations.map(c => (
+
+          <div className="conv-group-label">{projectGroups.length ? 'General' : 'History'}</div>
+          {general.length === 0 && projectGroups.length === 0 && (
+            <div className="conv-empty">No conversations yet</div>
+          )}
+          {general.map(c => (
             <div
               key={c.id}
               className={`conv-item ${c.id === p.activeId ? 'active' : ''}`}

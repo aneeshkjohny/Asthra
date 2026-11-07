@@ -41,6 +41,7 @@ Browser  →  http://localhost:8787 (FastAPI backend)
 - **Search & export** — find any message across all chats; download a conversation as Markdown or HTML
 - **Multiple models** — switch between any Ollama model on the fly
 - **Conversations** — sidebar history, auto-titled, persisted in SQLite, rename/delete
+- **Projects** — group related chats under a workspace, each with its own system prompt, default skills, and shared documents the model draws on
 - **Stop / Regenerate** — abort a running generation, or redo the last answer
 - **Light & dark themes**, keyboard-first (Enter to send, Shift+Enter for newline)
 
@@ -100,6 +101,8 @@ Then open **http://localhost:8787** in your browser.
 - `POST /api/upload` — multipart file upload (images / documents / PDFs)
 - `GET /api/conversations/{id}/export?format=md|html` — download a conversation
 - `GET|POST|PATCH|DELETE /api/conversations[/{id}]` — conversation CRUD
+- `GET|POST|PATCH|DELETE /api/projects[/{id}]` — projects (workspaces that group chats)
+- `POST /api/projects/{id}/files` · `GET /api/projects/{id}/files` · `DELETE …/files/{fid}` — shared project documents
 - `GET|POST|PUT|DELETE /api/skills[/{name}]` — skill management
 
 ## 📁 Project layout
@@ -112,8 +115,8 @@ backend/
   asthra.db            # SQLite (created at first run)
   uploads/             # uploaded files (created at first run)
   app/
-    models/            # data access + migrations
-    controllers/       # routers (chat, conversations, skills, uploads)
+    models/            # data access + migrations (conversations, projects, skills, …)
+    controllers/       # routers (chat, conversations, projects, skills, uploads)
     views/             # serializers + export (md / html)
     tools.py           # local, sandboxed tool functions
     ingest.py          # text / PDF / OCR extraction
@@ -122,7 +125,7 @@ frontend/
     App.tsx            # state, chat loop, streaming
     api.ts             # typed API client (same-origin, no CORS)
     styles.css         # design tokens + component styles (light/dark)
-    components/        # Sidebar, Message, Markdown, Composer, Settings, Skills, Artifacts
+    components/        # Sidebar, Message, Markdown, Composer, Settings, Skills, Projects, Artifacts
 start.sh               # interactive first-run setup + one-command launcher
 ```
 

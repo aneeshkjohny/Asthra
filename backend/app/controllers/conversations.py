@@ -46,6 +46,7 @@ def create_conv(body: dict) -> dict:
         model=body.get("model", "qwen3.8:latest"),
         settings=body.get("settings", {}),
         skills=body.get("skills", []),
+        project_id=body.get("project_id"),
     )
 
 

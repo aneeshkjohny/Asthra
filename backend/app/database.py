@@ -61,6 +61,27 @@ CREATE TABLE IF NOT EXISTS messages (
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, created_at);
+CREATE TABLE IF NOT EXISTS projects (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    system_prompt TEXT NOT NULL DEFAULT '',
+    default_skills TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS project_files (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'file',
+    mime TEXT NOT NULL DEFAULT '',
+    size INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_project_files ON project_files(project_id);
 """
 
 
@@ -74,6 +95,8 @@ def _migrate(c: sqlite3.Connection) -> None:
     cconv = [r["name"] for r in c.execute("PRAGMA table_info(conversations)").fetchall()]
     if "skills" not in cconv:
         c.execute("ALTER TABLE conversations ADD COLUMN skills TEXT NOT NULL DEFAULT '[]'")
+    if "project_id" not in cconv:
+        c.execute("ALTER TABLE conversations ADD COLUMN project_id TEXT")
 
 
 def init_db() -> None:

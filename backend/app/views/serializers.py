@@ -11,8 +11,37 @@ def row_to_conversation(row) -> Dict[str, Any]:
         "model": row["model"],
         "settings": json.loads(row["settings"] or "{}"),
         "skills": json.loads(row["skills"] or "[]") if "skills" in keys else [],
+        "project_id": row["project_id"] if "project_id" in keys else None,
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
+    }
+
+
+def row_to_project(row) -> Dict[str, Any]:
+    keys = row.keys()
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "description": row["description"] or "",
+        "system_prompt": row["system_prompt"] or "",
+        "default_skills": json.loads(row["default_skills"] or "[]"),
+        "n_conversations": row["n_conversations"] if "n_conversations" in keys else 0,
+        "n_files": row["n_files"] if "n_files" in keys else 0,
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def to_project_file(row) -> Dict[str, Any]:
+    return {
+        "id": row["id"],
+        "project_id": row["project_id"],
+        "name": row["name"],
+        "kind": row["kind"],
+        "mime": row["mime"],
+        "size": row["size"],
+        "created_at": row["created_at"],
+        "url": f"/api/projects/{row['project_id']}/files/{row['id']}/download",
     }
 
 

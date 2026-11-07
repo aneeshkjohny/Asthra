@@ -8,6 +8,8 @@ PROJECT_ROOT = os.path.dirname(BACKEND_DIR)                 # project root
 
 DB_PATH = os.path.join(BACKEND_DIR, "asthra.db")
 UPLOAD_DIR = os.path.join(BACKEND_DIR, "uploads")
+# Project-scoped files (Phase 4) live under their own subfolder, per project.
+PROJECT_UPLOAD_DIR = os.path.join(UPLOAD_DIR, "projects")
 DIST_DIR = os.path.join(PROJECT_ROOT, "frontend", "dist")
 
 # Network / runtime (all overridable per-machine via env vars)
@@ -25,3 +27,4 @@ MAX_UPLOAD = MAX_UPLOAD_MB * 1024 * 1024
 SKILLS_DIR = os.path.join(PROJECT_ROOT, "skills")
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(PROJECT_UPLOAD_DIR, exist_ok=True)

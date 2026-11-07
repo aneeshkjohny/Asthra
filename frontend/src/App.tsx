@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, type Conversation, type Message, type Model, type Settings, type ChatChunk, type Skill, type ToolCall, type SearchResult } from './api'
+import { api, type Conversation, type Message, type Model, type Settings, type ChatChunk, type Skill, type ToolCall, type SearchResult, type Project } from './api'
 import { Sidebar } from './components/Sidebar'
 import { Message as MessageView } from './components/Message'
 import { Composer, type PendingFile } from './components/Composer'
 import { SettingsModal } from './components/Settings'
+import { ProjectsManager } from './components/ProjectsManager'
 import { ArtifactPane } from './components/ArtifactPane'
 import { extractArtifact, type Artifact } from './artifact'
 
@@ -59,6 +60,10 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
+  const [showProjects, setShowProjects] = useState(false)
+  const [projectsInitialId, setProjectsInitialId] = useState<string | null>(null)
+  const [newChatProjectId, setNewChatProjectId] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const loadedConv = useRef<string | null>(null)
@@ -66,6 +71,8 @@ export default function App() {
 
   const currentModel = models.find(m => m.name === model)
   const caps = currentModel?.capabilities ?? []
+  const activeConv = activeId ? conversations.find(c => c.id === activeId) : null
+  const activeProject = activeConv?.project_id ? projects.find(p => p.id === activeConv.project_id) : null
 
   // Theme
   useEffect(() => {
@@ -92,6 +99,7 @@ export default function App() {
         const [ms, convs] = await Promise.all([api.models(), api.conversations()])
         setModels(ms)
         setConversations(convs)
+        try { setProjects(await api.projects()) } catch { setProjects([]) } // optional (older backend)
         try { setSkills(await api.skills()) } catch { /* skills are optional */ }
         if (ms.length && !model) setModel(ms[0].name)
         if (convs.length) {
@@ -115,6 +123,10 @@ export default function App() {
     setConversations(await api.conversations())
   }, [])
 
+  const refreshProjects = useCallback(async () => {
+    setProjects(await api.projects())
+  }, [])
+
   async function selectConversation(id: string) {
     if (streaming) stopStreaming()
     setActiveId(id)
@@ -129,7 +141,7 @@ export default function App() {
     loadedConv.current = id
   }
 
-  async function newChat() {
+  async function newChat(projectId: string | null = null) {
     if (streaming) stopStreaming()
     setActiveId(null)
     setMessages([])
@@ -138,6 +150,7 @@ export default function App() {
     setStats(null)
     setArtifact(null)
     loadedConv.current = null
+    setNewChatProjectId(projectId)
     setSidebarCollapsed(window.innerWidth < 720 ? false : sidebarCollapsed)
   }
 
@@ -179,6 +192,11 @@ export default function App() {
   function openSettings(tab: 'prefs' | 'skills') {
     setSettingsTab(tab)
     setShowSettings(true)
+  }
+
+  function openProjects(initialId: string | null = null) {
+    setProjectsInitialId(initialId)
+    setShowProjects(true)
   }
 
   async function refreshSkills() {
@@ -246,10 +264,11 @@ export default function App() {
       ? conversations.find(c => c.id === convId)
       : null
 
-    // Create conversation if needed
+    // Create conversation if needed (optionally inside a project)
     if (!conv) {
-      conv = await api.createConversation('New chat', model, settings, pinned)
+      conv = await api.createConversation('New chat', model, settings, pinned, newChatProjectId)
       convId = conv.id
+      setNewChatProjectId(null)
       setActiveId(conv.id)
       loadedConv.current = conv.id
       await refreshConversations()
@@ -399,12 +418,16 @@ export default function App() {
         models={models}
         currentModel={model}
         theme={theme}
+        projects={projects}
         onNew={newChat}
         onSelect={selectConversation}
         onDelete={deleteConversation}
         onModel={setModelForAll}
         onTheme={() => setTheme(t => (t === 'light' ? 'dark' : 'light'))}
         onOpenSettings={() => openSettings('prefs')}
+        onNewProject={() => openProjects(null)}
+        onOpenProject={id => openProjects(id)}
+        onNewInProject={id => newChat(id)}
         searchQuery={searchQuery}
         searchResults={searchResults}
         onSearch={doSearch}
@@ -416,7 +439,12 @@ export default function App() {
           <button className="hamburger" onClick={() => setSidebarCollapsed(c => !c)} title="Toggle sidebar">
             ☰
           </button>
-          <div className="conv-title">{activeId ? conversations.find(c => c.id === activeId)?.title : 'New chat'}</div>
+          {activeProject && (
+            <button className="proj-chip" title={`Project: ${activeProject.name}`} onClick={() => openProjects(activeProject.id)}>
+              ▣ {activeProject.name}
+            </button>
+          )}
+          <div className="conv-title">{activeConv?.title || 'New chat'}</div>
           <div className="topbar-right">
             {activeId && (
               <ExportMenu
@@ -502,6 +530,18 @@ export default function App() {
           initialTab={settingsTab}
           skills={skills}
           onSkillsChanged={refreshSkills}
+          onError={m => setToast(m)}
+        />
+      )}
+
+      {showProjects && (
+        <ProjectsManager
+          projects={projects}
+          initialId={projectsInitialId}
+          skills={skills}
+          onChanged={() => { refreshProjects(); refreshConversations() }}
+          onNewInProject={id => { setShowProjects(false); newChat(id) }}
+          onClose={() => setShowProjects(false)}
           onError={m => setToast(m)}
         />
       )}

@@ -16,9 +16,34 @@ export interface Conversation {
   model: string
   settings: Settings
   skills?: string[]
+  project_id?: string | null
   created_at: string
   updated_at: string
   messages?: Message[]
+}
+
+export interface Project {
+  id: string
+  name: string
+  description: string
+  system_prompt: string
+  default_skills: string[]
+  n_conversations: number
+  n_files: number
+  created_at: string
+  updated_at: string
+  files?: ProjectFile[]
+}
+
+export interface ProjectFile {
+  id: string
+  project_id: string
+  name: string
+  kind: AttachmentKind
+  mime?: string
+  size?: number
+  created_at: string
+  url?: string
 }
 
 export interface Skill {
@@ -114,15 +139,15 @@ export const api = {
     return fetch(`${BASE}/api/conversations/${id}`).then(r => json<Conversation>(r))
   },
 
-  createConversation(title: string, model: string, settings: Settings, skills: string[] = []): Promise<Conversation> {
+  createConversation(title: string, model: string, settings: Settings, skills: string[] = [], projectId?: string | null): Promise<Conversation> {
     return fetch(`${BASE}/api/conversations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, model, settings, skills }),
+      body: JSON.stringify({ title, model, settings, skills, project_id: projectId || null }),
     }).then(r => json<Conversation>(r))
   },
 
-  updateConversation(id: string, patch: Partial<Pick<Conversation, 'title' | 'model' | 'settings' | 'skills'>>): Promise<Conversation> {
+  updateConversation(id: string, patch: Partial<Pick<Conversation, 'title' | 'model' | 'settings' | 'skills' | 'project_id'>>): Promise<Conversation> {
     return fetch(`${BASE}/api/conversations/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -207,6 +232,53 @@ export const api = {
     const form = new FormData()
     form.append('file', file)
     return fetch(`${BASE}/api/upload`, { method: 'POST', body: form }).then(r => json(r))
+  },
+
+  // --- Projects (Phase 4) ---
+  projects(): Promise<Project[]> {
+    return fetch(`${BASE}/api/projects`).then(r => json<Project[]>(r))
+  },
+
+  project(id: string): Promise<Project> {
+    return fetch(`${BASE}/api/projects/${id}`).then(r => json<Project>(r))
+  },
+
+  createProject(name: string, description: string, systemPrompt: string, defaultSkills: string[]): Promise<Project> {
+    return fetch(`${BASE}/api/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, description, system_prompt: systemPrompt, default_skills: defaultSkills }),
+    }).then(r => json<Project>(r))
+  },
+
+  updateProject(id: string, patch: Partial<Pick<Project, 'name' | 'description' | 'system_prompt' | 'default_skills'>>): Promise<Project> {
+    return fetch(`${BASE}/api/projects/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    }).then(r => json<Project>(r))
+  },
+
+  deleteProject(id: string): Promise<void> {
+    return fetch(`${BASE}/api/projects/${id}`, { method: 'DELETE' }).then(() => undefined)
+  },
+
+  projectFiles(id: string): Promise<ProjectFile[]> {
+    return fetch(`${BASE}/api/projects/${id}/files`).then(r => json<ProjectFile[]>(r))
+  },
+
+  uploadProjectFile(id: string, file: File): Promise<ProjectFile> {
+    const form = new FormData()
+    form.append('file', file)
+    return fetch(`${BASE}/api/projects/${id}/files`, { method: 'POST', body: form }).then(r => json(r))
+  },
+
+  deleteProjectFile(id: string, fid: string): Promise<void> {
+    return fetch(`${BASE}/api/projects/${id}/files/${fid}`, { method: 'DELETE' }).then(() => undefined)
+  },
+
+  projectFileUrl(id: string, fid: string): string {
+    return `${BASE}/api/projects/${id}/files/${fid}/download`
   },
 
   skills(): Promise<Skill[]> {
