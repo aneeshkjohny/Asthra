@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { type Model, type Conversation, type SearchResult, type Project } from '../api'
 
 interface Props {
@@ -12,6 +12,7 @@ interface Props {
   onNew: (projectId?: string | null) => void
   onSelect: (id: string) => void
   onDelete: (id: string) => void
+  onMoveProject: (convId: string, projectId: string | null) => void
   onModel: (name: string) => void
   onTheme: () => void
   onOpenSettings: () => void
@@ -22,6 +23,92 @@ interface Props {
   searchResults: SearchResult[]
   onSearch: (q: string) => void
   onPickResult: (r: SearchResult) => void
+}
+
+// Per-chat "⋯" menu: move the chat to a project / General, or delete it.
+// Rendered with position:fixed (measured from the button) so it is not clipped
+// by the scrollable list and can open past the sidebar's right edge.
+function ConvMenu({
+  conv,
+  projects,
+  onMove,
+  onDelete,
+}: {
+  conv: Conversation
+  projects: Project[]
+  onMove: (projectId: string | null) => void
+  onDelete: () => void
+}) {
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
+  const close = () => setPos(null)
+
+  useEffect(() => {
+    if (!pos) return
+    const onScroll = () => close()
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }
+    window.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', onScroll)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('resize', onScroll)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [pos])
+
+  return (
+    <>
+      <button
+        className="more"
+        title="More"
+        onClick={e => {
+          e.stopPropagation()
+          if (pos) { close(); return }
+          const r = e.currentTarget.getBoundingClientRect()
+          const W = 224
+          let x = r.right + 8
+          if (x + W > window.innerWidth) x = Math.max(8, r.left - W - 8)
+          let y = r.bottom + 6
+          if (y + 260 > window.innerHeight) y = Math.max(8, r.top - 240)
+          setPos({ x, y })
+        }}
+      >
+        ⋯
+      </button>
+      {pos && (
+        <>
+          <div className="convmenu-backdrop" onClick={e => { e.stopPropagation(); close() }} />
+          <div className="convmenu" style={{ left: pos.x, top: pos.y }} onClick={e => e.stopPropagation()}>
+            <div className="convmenu-label">Move to</div>
+            {projects.map(pr => (
+              <button
+                key={pr.id}
+                className={`convmenu-item ${conv.project_id === pr.id ? 'current' : ''}`}
+                onClick={() => { onMove(pr.id); close() }}
+              >
+                <span className="convmenu-check">{conv.project_id === pr.id ? '✓' : ''}</span>
+                <span className="convmenu-icon">▣</span>
+                <span className="convmenu-name">{pr.name}</span>
+              </button>
+            ))}
+            <button
+              className={`convmenu-item ${conv.project_id == null ? 'current' : ''}`}
+              onClick={() => { onMove(null); close() }}
+            >
+              <span className="convmenu-check">{conv.project_id == null ? '✓' : ''}</span>
+              <span className="convmenu-icon">◦</span>
+              <span className="convmenu-name">General</span>
+            </button>
+            <div className="convmenu-sep" />
+            <button className="convmenu-item danger" onClick={() => { onDelete(); close() }}>
+              <span className="convmenu-icon">🗑</span>
+              <span className="convmenu-name">Delete chat</span>
+            </button>
+          </div>
+        </>
+      )}
+    </>
+  )
 }
 
 export function Sidebar(p: Props) {
@@ -42,7 +129,7 @@ export function Sidebar(p: Props) {
         </div>
       </div>
 
-      <button className="new-chat-btn" onClick={() => p.onNew()}>
+      <button className="new-chat-btn" title="New chat (Ctrl/⌘+K)" onClick={() => p.onNew()}>
         <span className="plus">＋</span> New chat
       </button>
 
@@ -126,13 +213,12 @@ export function Sidebar(p: Props) {
                     title={c.title}
                   >
                     <span className="title">{c.title}</span>
-                    <span
-                      className="del"
-                      title="Delete"
-                      onClick={e => { e.stopPropagation(); p.onDelete(c.id) }}
-                    >
-                      ✕
-                    </span>
+                    <ConvMenu
+                      conv={c}
+                      projects={p.projects}
+                      onMove={pid => p.onMoveProject(c.id, pid)}
+                      onDelete={() => p.onDelete(c.id)}
+                    />
                   </div>
                 ))}
               </div>
@@ -151,16 +237,12 @@ export function Sidebar(p: Props) {
               title={c.title}
             >
               <span className="title">{c.title}</span>
-              <span
-                className="del"
-                title="Delete"
-                onClick={e => {
-                  e.stopPropagation()
-                  p.onDelete(c.id)
-                }}
-              >
-                ✕
-              </span>
+              <ConvMenu
+                conv={c}
+                projects={p.projects}
+                onMove={pid => p.onMoveProject(c.id, pid)}
+                onDelete={() => p.onDelete(c.id)}
+              />
             </div>
           ))}
         </div>

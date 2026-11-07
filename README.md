@@ -41,9 +41,9 @@ Browser  →  http://localhost:8787 (FastAPI backend)
 - **Search & export** — find any message across all chats; download a conversation as Markdown or HTML
 - **Multiple models** — switch between any Ollama model on the fly
 - **Conversations** — sidebar history, auto-titled, persisted in SQLite, rename/delete
-- **Projects** — group related chats under a workspace, each with its own system prompt, default skills, and shared documents the model draws on
+- **Projects** — group related chats under a workspace, each with its own system prompt, default skills, and shared documents the model draws on; move any existing chat in or out from its ⋯ menu
 - **Stop / Regenerate** — abort a running generation, or redo the last answer
-- **Light & dark themes**, keyboard-first (Enter to send, Shift+Enter for newline)
+- **Light & dark themes**, keyboard-first (Enter to send, Shift+Enter for newline, **Ctrl/⌘+K** or **N** for a new chat)
 
 ## 🚀 Getting started
 

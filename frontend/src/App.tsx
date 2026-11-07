@@ -154,6 +154,26 @@ export default function App() {
     setSidebarCollapsed(window.innerWidth < 720 ? false : sidebarCollapsed)
   }
 
+  // Global new-chat shortcuts: Ctrl/Cmd+K (always) or plain "n" when not typing.
+  const newChatRef = useRef<typeof newChat>(newChat)
+  newChatRef.current = newChat
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const isCmdK = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k'
+      const isN = e.key.toLowerCase() === 'n'
+        && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey
+      if (!isCmdK && !isN) return
+      if (isN) {
+        const t = e.target as HTMLElement | null
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      }
+      e.preventDefault()
+      newChatRef.current()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   async function deleteConversation(id: string) {
     try {
       await api.deleteConversation(id)
@@ -163,6 +183,16 @@ export default function App() {
         setArtifact(null)
         loadedConv.current = null
       }
+      await refreshConversations()
+    } catch (e: any) {
+      setToast(e.message)
+    }
+  }
+
+  // Move an existing chat into a project, or back to General (project_id=null).
+  async function moveConversation(convId: string, projectId: string | null) {
+    try {
+      await api.updateConversation(convId, { project_id: projectId })
       await refreshConversations()
     } catch (e: any) {
       setToast(e.message)
@@ -422,6 +452,7 @@ export default function App() {
         onNew={newChat}
         onSelect={selectConversation}
         onDelete={deleteConversation}
+        onMoveProject={moveConversation}
         onModel={setModelForAll}
         onTheme={() => setTheme(t => (t === 'light' ? 'dark' : 'light'))}
         onOpenSettings={() => openSettings('prefs')}
